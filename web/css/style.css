@@ -692,36 +692,21 @@ kbd {
 }
 
 .hint-btn {
-    display: inline-block;
-    padding: 14px 28px;
-    background: linear-gradient(135deg, rgba(0, 212, 255, 0.2), rgba(6, 255, 165, 0.2));
-    border: 2px solid transparent;
-    border-image: linear-gradient(135deg, #00D4FF, #06FFA5) 1;
-    border-radius: 30px;
+    padding: 16px 32px;
+    background: #06FFA5;
+    border: none;
+    border-radius: 32px;
     font-family: 'Space Grotesk', sans-serif;
     font-size: 16px;
     font-weight: 600;
-    color: #FFFFFF;
+    color: #0D0221;
     cursor: pointer;
-    transition: all 0.3s ease;
-    text-shadow: 0 0 10px rgba(6, 255, 165, 0.5);
-    box-shadow: 0 0 20px rgba(0, 212, 255, 0.2), 0 0 40px rgba(6, 255, 165, 0.1);
-    animation: glowPulse 3s ease infinite;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
 .hint-btn:hover {
-    background: linear-gradient(135deg, rgba(0, 212, 255, 0.3), rgba(6, 255, 165, 0.3));
     transform: scale(1.05);
-    box-shadow: 0 0 30px rgba(0, 212, 255, 0.4), 0 0 60px rgba(6, 255, 165, 0.2);
-}
-
-@keyframes glowPulse {
-    0%, 100% {
-        box-shadow: 0 0 20px rgba(0, 212, 255, 0.2), 0 0 40px rgba(6, 255, 165, 0.1);
-    }
-    50% {
-        box-shadow: 0 0 30px rgba(0, 212, 255, 0.4), 0 0 60px rgba(6, 255, 165, 0.3);
-    }
+    box-shadow: 0 0 25px rgba(6, 255, 165, 0.5);
 }
 
 .tutorial-progress {
