@@ -231,7 +231,7 @@ class ParticleDanceApp {
     }
 
     advanceTutorial() {
-        if (this.tutorialStep < 5) {
+        if (this.tutorialStep < 3) {
             this.tutorialStep++;
             this.showTutorialStep(this.tutorialStep);
         }
@@ -247,27 +247,10 @@ class ParticleDanceApp {
     checkTutorialGesture(gestureType) {
         if (!this.tutorialActive) return;
 
-        // Step 1: Waiting for hand detection (handled separately)
-        // Step 2: Palm gesture
-        if (this.tutorialStep === 2 && gestureType === 'PALM') {
-            if (!this.gestureCompleted.palm) {
-                this.gestureCompleted.palm = true;
-                setTimeout(() => this.advanceTutorial(), 1500);
-            }
-        }
-        // Step 3: Fist gesture
-        else if (this.tutorialStep === 3 && gestureType === 'FIST') {
-            if (!this.gestureCompleted.fist) {
-                this.gestureCompleted.fist = true;
-                setTimeout(() => this.advanceTutorial(), 1500);
-            }
-        }
-        // Step 4: Point gesture
-        else if (this.tutorialStep === 4 && gestureType === 'POINT') {
-            if (!this.gestureCompleted.point) {
-                this.gestureCompleted.point = true;
-                setTimeout(() => this.advanceTutorial(), 1500);
-            }
+        // Step 2: Any gesture advances to step 3 after a moment
+        if (this.tutorialStep === 2 && !this.gestureCompleted.any) {
+            this.gestureCompleted.any = true;
+            setTimeout(() => this.advanceTutorial(), 3000);
         }
     }
 
