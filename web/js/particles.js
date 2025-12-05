@@ -103,6 +103,9 @@ class ParticleSystem {
         // Performance mode (reduces glow during recording)
         this.performanceMode = false;
 
+        // Cursor visibility
+        this.cursorVisible = true;
+
         // Initialize particles
         this.init();
     }
@@ -266,7 +269,7 @@ class ParticleSystem {
         ctx.globalCompositeOperation = 'source-over';
 
         // Render cursor glow indicator
-        if (this.mouseActive) {
+        if (this.mouseActive && this.cursorVisible) {
             this.renderCursor(ctx);
         }
     }

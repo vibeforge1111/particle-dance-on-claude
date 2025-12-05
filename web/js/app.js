@@ -18,6 +18,7 @@ class ParticleDanceApp {
         this.mode = 'attract';
         this.soundEnabled = true;
         this.handTrackingEnabled = false;
+        this.cursorVisible = true;
         this.hasInteracted = false;
         this.showCameraPrompt = true;
 
@@ -40,6 +41,7 @@ class ParticleDanceApp {
             btnSwirl: document.getElementById('btn-swirl'),
             btnSound: document.getElementById('btn-sound'),
             btnFullscreen: document.getElementById('btn-fullscreen'),
+            btnCursor: document.getElementById('btn-cursor'),
             btnHands: document.getElementById('btn-hands'),
             helpText: document.getElementById('help-text'),
             helpModal: document.getElementById('help-modal'),
@@ -160,6 +162,7 @@ class ParticleDanceApp {
         this.ui.btnSwirl.addEventListener('click', () => this.setMode('swirl'));
         this.ui.btnSound.addEventListener('click', () => this.toggleSound());
         this.ui.btnFullscreen.addEventListener('click', () => this.toggleFullscreen());
+        this.ui.btnCursor.addEventListener('click', () => this.toggleCursor());
         this.ui.btnHands.addEventListener('click', () => this.toggleHandTracking());
         this.ui.closeHelp.addEventListener('click', () => this.hideHelp());
 
@@ -568,6 +571,9 @@ class ParticleDanceApp {
             case 'f':
                 this.toggleFullscreen();
                 break;
+            case 'c':
+                this.toggleCursor();
+                break;
             case 'h':
                 this.toggleHelp();
                 break;
@@ -638,6 +644,13 @@ class ParticleDanceApp {
         } else {
             document.exitFullscreen();
         }
+    }
+
+    // Cursor toggle
+    toggleCursor() {
+        this.cursorVisible = !this.cursorVisible;
+        this.particles.cursorVisible = this.cursorVisible;
+        this.ui.btnCursor.classList.toggle('active', this.cursorVisible);
     }
 
     // Help modal
