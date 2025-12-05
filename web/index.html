@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta name="description" content="Particle Dance - Mesmerizing interactive particle art. Create, capture, and share beautiful particle animations.">
+    <meta name="theme-color" content="#0D0221">
+
+    <!-- Open Graph for social sharing -->
+    <meta property="og:title" content="Particle Dance">
+    <meta property="og:description" content="Create mesmerizing particle art with your fingertips">
+    <meta property="og:type" content="website">
+
+    <title>Particle Dance</title>
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <!-- Main Canvas -->
+    <canvas id="particleCanvas"></canvas>
+
+    <!-- UI Overlay -->
+    <div id="ui-overlay">
+        <!-- Mode Indicator -->
+        <div id="mode-indicator">
+            <span id="mode-text">ATTRACT</span>
+        </div>
+
+        <!-- Control Buttons -->
+        <div id="controls">
+            <button id="btn-attract" class="mode-btn active" data-mode="attract" title="Attract (A)">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="3"/>
+                    <path d="M12 2v4M12 18v4M2 12h4M18 12h4"/>
+                </svg>
+            </button>
+            <button id="btn-repel" class="mode-btn" data-mode="repel" title="Repel (R)">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="3"/>
+                    <path d="M12 2l-2 2 2 2M12 18l2 2-2 2M2 12l2-2-2-2M22 12l-2 2 2 2"/>
+                </svg>
+            </button>
+            <button id="btn-swirl" class="mode-btn" data-mode="swirl" title="Swirl (S)">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M12 3a9 9 0 0 1 9 9 9 9 0 0 1-9 9 9 9 0 0 1-9-9"/>
+                    <path d="M12 8a4 4 0 0 1 4 4"/>
+                </svg>
+            </button>
+
+            <div class="divider"></div>
+
+            <button id="btn-sound" class="control-btn" title="Toggle Sound (M)">
+                <svg id="sound-on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M11 5L6 9H2v6h4l5 4V5z"/>
+                    <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/>
+                </svg>
+                <svg id="sound-off" class="hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M11 5L6 9H2v6h4l5 4V5z"/>
+                    <line x1="23" y1="9" x2="17" y2="15"/>
+                    <line x1="17" y1="9" x2="23" y2="15"/>
+                </svg>
+            </button>
+
+            <button id="btn-fullscreen" class="control-btn" title="Fullscreen (F)">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3"/>
+                </svg>
+            </button>
+
+            <button id="btn-record" class="control-btn record-btn" title="Record 5s (Space)">
+                <svg viewBox="0 0 24 24" fill="currentColor">
+                    <circle cx="12" cy="12" r="8"/>
+                </svg>
+            </button>
+        </div>
+
+        <!-- Recording Indicator -->
+        <div id="recording-indicator" class="hidden">
+            <div class="rec-dot"></div>
+            <span>REC</span>
+            <span id="rec-timer">5</span>
+        </div>
+
+        <!-- Help Text -->
+        <div id="help-text">
+            <span class="desktop-only">Press <kbd>H</kbd> for help</span>
+            <span class="mobile-only">Tap and drag to interact</span>
+        </div>
+
+        <!-- Help Modal -->
+        <div id="help-modal" class="hidden">
+            <div class="modal-content">
+                <h2>Controls</h2>
+                <div class="help-grid">
+                    <div class="help-item">
+                        <kbd>A</kbd>
+                        <span>Attract mode</span>
+                    </div>
+                    <div class="help-item">
+                        <kbd>R</kbd>
+                        <span>Repel mode</span>
+                    </div>
+                    <div class="help-item">
+                        <kbd>S</kbd>
+                        <span>Swirl mode</span>
+                    </div>
+                    <div class="help-item">
+                        <kbd>M</kbd>
+                        <span>Toggle sound</span>
+                    </div>
+                    <div class="help-item">
+                        <kbd>F</kbd>
+                        <span>Fullscreen</span>
+                    </div>
+                    <div class="help-item">
+                        <kbd>Space</kbd>
+                        <span>Record 5s clip</span>
+                    </div>
+                </div>
+                <p class="help-tip">Move your cursor to interact with particles</p>
+                <button id="close-help">Got it</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="js/particles.js"></script>
+    <script src="js/audio.js"></script>
+    <script src="js/recorder.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>

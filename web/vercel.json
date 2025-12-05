@@ -1,0 +1,15 @@
+{
+  "version": 2,
+  "name": "particle-dance",
+  "builds": [
+    {
+      "src": "**/*",
+      "use": "@vercel/static"
+    }
+  ],
+  "routes": [
+    {
+      "handle": "filesystem"
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "name": "particle-dance",
+  "version": "1.0.0",
+  "description": "Mesmerizing interactive particle art - Create, capture, and share beautiful particle animations",
+  "main": "index.html",
+  "scripts": {
+    "start": "python -m http.server 8080",
+    "serve": "npx serve ."
+  },
+  "keywords": [
+    "particles",
+    "interactive",
+    "art",
+    "canvas",
+    "animation",
+    "ASMR",
+    "creative"
+  ],
+  "author": "Particle Dance",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/vibeforge1111/particle-dance-on-claude"
+  },
+  "homepage": "https://particle-dance.vercel.app"
+}
