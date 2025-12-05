@@ -8,8 +8,8 @@ class HandTracker {
         this.enabled = false;
         this.initialized = false;
         this.hands = null;
-        this.camera = null;
         this.videoElement = null;
+        this.animationId = null;
 
         // Callbacks
         this.onHandsDetected = options.onHandsDetected || (() => {});
@@ -30,20 +30,17 @@ class HandTracker {
         // Thresholds
         this.PINCH_THRESHOLD = 0.08;
         this.SPREAD_THRESHOLD = 0.25;
-        this.WAVE_THRESHOLD = 0.02;
 
         // Gesture smoothing
-        this.gestureBuffer = [];
+        this.gestureBuffer = {};
         this.bufferSize = 5;
 
         // Hand state
         this.leftHand = null;
         this.rightHand = null;
-        this.lastHandPositions = {};
 
         // Detection state
         this.handsDetected = false;
-        this.lastDetectionTime = 0;
     }
 
     async init() {
@@ -52,14 +49,11 @@ class HandTracker {
         try {
             // Check if MediaPipe is available
             if (typeof Hands === 'undefined') {
+                console.error('MediaPipe Hands not loaded');
                 throw new Error('MediaPipe Hands not loaded');
             }
 
-            // Create video element for camera
-            this.videoElement = document.createElement('video');
-            this.videoElement.style.display = 'none';
-            this.videoElement.setAttribute('playsinline', '');
-            document.body.appendChild(this.videoElement);
+            console.log('Initializing MediaPipe Hands...');
 
             // Initialize MediaPipe Hands
             this.hands = new Hands({
@@ -78,12 +72,12 @@ class HandTracker {
             this.hands.onResults((results) => this.processResults(results));
 
             this.initialized = true;
-            console.log('Hand tracking initialized');
+            console.log('MediaPipe Hands initialized');
             return true;
 
         } catch (e) {
             console.error('Hand tracking init failed:', e);
-            this.onError('Hand tracking not available');
+            this.onError('Hand tracking not available: ' + e.message);
             return false;
         }
     }
@@ -95,34 +89,42 @@ class HandTracker {
         }
 
         try {
+            console.log('Requesting camera access...');
+
             // Request camera permission
             const stream = await navigator.mediaDevices.getUserMedia({
                 video: {
-                    width: 640,
-                    height: 480,
+                    width: { ideal: 640 },
+                    height: { ideal: 480 },
                     facingMode: 'user'
                 }
             });
 
-            this.videoElement.srcObject = stream;
-            await this.videoElement.play();
+            console.log('Camera access granted');
 
-            // Start camera processing
-            this.camera = new Camera(this.videoElement, {
-                onFrame: async () => {
-                    if (this.enabled) {
-                        await this.hands.send({ image: this.videoElement });
-                    }
-                },
-                width: 640,
-                height: 480
+            // Create video element
+            this.videoElement = document.createElement('video');
+            this.videoElement.srcObject = stream;
+            this.videoElement.setAttribute('playsinline', '');
+            this.videoElement.style.display = 'none';
+            document.body.appendChild(this.videoElement);
+
+            // Wait for video to be ready
+            await new Promise((resolve) => {
+                this.videoElement.onloadedmetadata = () => {
+                    this.videoElement.play();
+                    resolve();
+                };
             });
 
-            await this.camera.start();
+            console.log('Video ready, starting hand detection loop...');
+
             this.enabled = true;
             this.onReady();
 
-            console.log('Hand tracking started');
+            // Start processing loop
+            this.processFrame();
+
             return true;
 
         } catch (e) {
@@ -130,25 +132,42 @@ class HandTracker {
             if (e.name === 'NotAllowedError') {
                 this.onError('Camera permission denied');
             } else {
-                this.onError('Camera not available');
+                this.onError('Camera not available: ' + e.message);
             }
             return false;
         }
     }
 
+    async processFrame() {
+        if (!this.enabled || !this.videoElement) return;
+
+        try {
+            await this.hands.send({ image: this.videoElement });
+        } catch (e) {
+            console.error('Error processing frame:', e);
+        }
+
+        // Continue loop
+        this.animationId = requestAnimationFrame(() => this.processFrame());
+    }
+
     stop() {
         this.enabled = false;
-        if (this.camera) {
-            this.camera.stop();
+
+        if (this.animationId) {
+            cancelAnimationFrame(this.animationId);
+            this.animationId = null;
         }
+
         if (this.videoElement && this.videoElement.srcObject) {
             this.videoElement.srcObject.getTracks().forEach(track => track.stop());
+            this.videoElement.remove();
+            this.videoElement = null;
         }
     }
 
     processResults(results) {
         if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
-            // No hands detected
             if (this.handsDetected) {
                 this.handsDetected = false;
                 this.onTrackingLost();
@@ -157,8 +176,6 @@ class HandTracker {
         }
 
         this.handsDetected = true;
-        this.lastDetectionTime = performance.now();
-
         const handsData = [];
 
         for (let i = 0; i < results.multiHandLandmarks.length; i++) {
@@ -166,14 +183,15 @@ class HandTracker {
             const handedness = results.multiHandedness[i];
             const isLeft = handedness.label === 'Left';
 
-            // Get palm center (average of key points)
+            // Get palm center
             const palmCenter = this.getPalmCenter(landmarks);
 
             // Detect gesture
             const gesture = this.detectGesture(landmarks);
 
             // Smooth gesture
-            const smoothedGesture = this.smoothGesture(gesture, isLeft ? 'left' : 'right');
+            const handId = isLeft ? 'left' : 'right';
+            const smoothedGesture = this.smoothGesture(gesture, handId);
 
             const handData = {
                 landmarks,
@@ -185,7 +203,6 @@ class HandTracker {
 
             handsData.push(handData);
 
-            // Store for two-hand detection
             if (isLeft) {
                 this.leftHand = handData;
             } else {
@@ -194,7 +211,7 @@ class HandTracker {
         }
 
         // Check for two-hand gestures
-        if (this.leftHand && this.rightHand) {
+        if (this.leftHand && this.rightHand && results.multiHandLandmarks.length === 2) {
             const twoHandGesture = this.detectTwoHandGesture();
             if (twoHandGesture) {
                 handsData.twoHandGesture = twoHandGesture;
@@ -203,14 +220,12 @@ class HandTracker {
 
         this.onHandsDetected(handsData);
 
-        // Trigger gesture callbacks
         for (const hand of handsData) {
             this.onGesture(hand.gesture, hand);
         }
     }
 
     getPalmCenter(landmarks) {
-        // Use wrist and middle finger base for stable palm center
         const wrist = landmarks[this.WRIST];
         const palmBase = landmarks[this.PALM_BASE];
 
@@ -257,11 +272,11 @@ class HandTracker {
     countExtendedFingers(landmarks) {
         let count = 0;
 
-        // Thumb (check x distance from palm)
-        const thumbExtended = landmarks[this.THUMB_TIP].x < landmarks[this.THUMB_TIP - 2].x - 0.02;
+        // Thumb
+        const thumbExtended = Math.abs(landmarks[this.THUMB_TIP].x - landmarks[this.WRIST].x) > 0.1;
         if (thumbExtended) count++;
 
-        // Other fingers (check y position relative to knuckle)
+        // Other fingers
         const fingerTips = [this.INDEX_TIP, this.MIDDLE_TIP, this.RING_TIP, this.PINKY_TIP];
         for (const tip of fingerTips) {
             if (this.isFingerExtended(landmarks, tip)) {
@@ -274,12 +289,11 @@ class HandTracker {
 
     isFingerExtended(landmarks, tipIndex) {
         const tip = landmarks[tipIndex];
-        const pip = landmarks[tipIndex - 2]; // Middle joint
-        return tip.y < pip.y - 0.02; // Tip is above middle joint
+        const pip = landmarks[tipIndex - 2];
+        return tip.y < pip.y - 0.02;
     }
 
     calculateFingerSpread(landmarks) {
-        // Distance between index and pinky tips
         return this.distance(landmarks[this.INDEX_TIP], landmarks[this.PINKY_TIP]);
     }
 
@@ -302,7 +316,6 @@ class HandTracker {
             buffer.shift();
         }
 
-        // Return most common gesture in buffer
         const counts = {};
         for (const g of buffer) {
             counts[g] = (counts[g] || 0) + 1;
@@ -327,7 +340,6 @@ class HandTracker {
         const rightPalm = this.rightHand.palmCenter;
         const palmDistance = this.distance(leftPalm, rightPalm);
 
-        // Hands coming together = merge
         if (palmDistance < 0.15) {
             return {
                 type: 'MERGE',
@@ -339,7 +351,6 @@ class HandTracker {
             };
         }
 
-        // Hands far apart = expand
         if (palmDistance > 0.5) {
             return {
                 type: 'EXPAND',
@@ -350,10 +361,9 @@ class HandTracker {
         return null;
     }
 
-    // Convert normalized coordinates to screen coordinates
     toScreenCoords(normalized, canvasWidth, canvasHeight) {
         return {
-            x: (1 - normalized.x) * canvasWidth, // Mirror horizontally
+            x: (1 - normalized.x) * canvasWidth,
             y: normalized.y * canvasHeight
         };
     }
