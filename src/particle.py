@@ -4,6 +4,7 @@ Particle system with soft-body fluid dynamics, merging, and bubble formation.
 import numpy as np
 import math
 import random
+from quadtree import SpatialHash
 
 
 class ParticleSystem:
@@ -93,6 +94,9 @@ class ParticleSystem:
         self.idle_time = 0
         self.idle_flow_angle = 0
         self.idle_flow_centers = []  # Random attractor points
+
+        # Spatial partitioning for efficient queries
+        self.spatial_hash = SpatialHash(width, height, cell_size=50)
 
         # Initialize with starting particles
         self.spawn_initial_particles(500)
@@ -310,23 +314,30 @@ class ParticleSystem:
         self.recent_merges = 0
         particles_to_remove = set()
 
-        # Simple O(n^2) check - could use spatial partitioning for performance
-        # Only check a subset each frame for performance
-        check_count = min(self.count, 100)
+        # Build spatial hash for current frame
+        self.spatial_hash.clear()
+        for i in range(self.count):
+            self.spatial_hash.insert(i, self.positions[i, 0], self.positions[i, 1])
+
+        # Check a random subset of particles each frame
+        check_count = min(self.count, 150)
         indices = random.sample(range(self.count), check_count)
 
         for i in indices:
             if i in particles_to_remove:
                 continue
 
-            for j in range(i + 1, self.count):
-                if j in particles_to_remove:
-                    continue
+            # Use spatial hash to find nearby particles (much faster than O(n²))
+            merge_radius = self.max_particle_size * 1.5
+            nearby = self.spatial_hash.query_radius(
+                self.positions[i, 0],
+                self.positions[i, 1],
+                merge_radius
+            )
 
-                # Check distance
-                dx = self.positions[i, 0] - self.positions[j, 0]
-                dy = self.positions[i, 1] - self.positions[j, 1]
-                dist = math.sqrt(dx * dx + dy * dy)
+            for j, px, py, dist in nearby:
+                if j <= i or j in particles_to_remove:
+                    continue
 
                 merge_threshold = (self.sizes[i] + self.sizes[j]) * 0.5
 
@@ -556,6 +567,9 @@ class ParticleSystem:
 
         self.width = width
         self.height = height
+
+        # Resize spatial hash
+        self.spatial_hash.resize(width, height)
 
     def set_palette(self, palette_name):
         """Set the color palette by name."""
