@@ -1,18 +1,20 @@
 /**
  * Particle Dance - Screen Recorder
- * MediaRecorder API for capturing 5-second clips
+ * Performance-optimized MediaRecorder for smooth 5-second clips
  */
 
 class ScreenRecorder {
     constructor(canvas, options = {}) {
         this.canvas = canvas;
         this.duration = options.duration || 5000; // 5 seconds
+        // Lower frame rate for better performance - 30fps is plenty for sharing
         this.frameRate = options.frameRate || 30;
 
         this.mediaRecorder = null;
         this.chunks = [];
         this.isRecording = false;
         this.recordingTimeout = null;
+        this.progressInterval = null;
 
         // Callbacks
         this.onStart = options.onStart || (() => {});
@@ -21,16 +23,33 @@ class ScreenRecorder {
         this.onComplete = options.onComplete || (() => {});
         this.onError = options.onError || (() => {});
 
-        // Check support
+        // Check support and best codec
         this.supported = this.checkSupport();
+        this.mimeType = this.getBestMimeType();
     }
 
     checkSupport() {
         return !!(
             this.canvas.captureStream &&
-            window.MediaRecorder &&
-            MediaRecorder.isTypeSupported('video/webm')
+            window.MediaRecorder
         );
+    }
+
+    getBestMimeType() {
+        // Prefer VP8 over VP9 for better performance (VP9 encoding is CPU-heavy)
+        const codecs = [
+            'video/webm;codecs=vp8',
+            'video/webm',
+            'video/mp4'
+        ];
+
+        for (const codec of codecs) {
+            if (MediaRecorder.isTypeSupported(codec)) {
+                console.log('Using codec:', codec);
+                return codec;
+            }
+        }
+        return 'video/webm';
     }
 
     start() {
@@ -44,24 +63,17 @@ class ScreenRecorder {
         }
 
         try {
-            // Get stream from canvas
+            // Get stream from canvas - lower frame rate for performance
             const stream = this.canvas.captureStream(this.frameRate);
 
-            // Determine best codec
-            let mimeType = 'video/webm;codecs=vp9';
-            if (!MediaRecorder.isTypeSupported(mimeType)) {
-                mimeType = 'video/webm;codecs=vp8';
-            }
-            if (!MediaRecorder.isTypeSupported(mimeType)) {
-                mimeType = 'video/webm';
-            }
+            // Create recorder with performance-optimized settings
+            const options = {
+                mimeType: this.mimeType,
+                // Lower bitrate for better performance (2.5 Mbps is good for web sharing)
+                videoBitsPerSecond: 2500000
+            };
 
-            // Create recorder
-            this.mediaRecorder = new MediaRecorder(stream, {
-                mimeType,
-                videoBitsPerSecond: 5000000 // 5 Mbps for quality
-            });
-
+            this.mediaRecorder = new MediaRecorder(stream, options);
             this.chunks = [];
 
             this.mediaRecorder.ondataavailable = (e) => {
@@ -77,23 +89,23 @@ class ScreenRecorder {
             this.mediaRecorder.onerror = (e) => {
                 console.error('MediaRecorder error:', e);
                 this.onError('Recording failed');
-                this.isRecording = false;
+                this.cleanup();
             };
 
-            // Start recording
-            this.mediaRecorder.start(100); // Collect data every 100ms
+            // Start recording - collect data less frequently for better performance
+            this.mediaRecorder.start(500); // Every 500ms (less CPU overhead)
             this.isRecording = true;
             this.onStart();
 
             // Progress updates
-            let elapsed = 0;
-            const progressInterval = setInterval(() => {
-                elapsed += 100;
+            const startTime = Date.now();
+            this.progressInterval = setInterval(() => {
+                const elapsed = Date.now() - startTime;
                 const remaining = Math.ceil((this.duration - elapsed) / 1000);
                 this.onProgress(remaining, elapsed / this.duration);
 
                 if (!this.isRecording) {
-                    clearInterval(progressInterval);
+                    clearInterval(this.progressInterval);
                 }
             }, 100);
 
@@ -106,7 +118,7 @@ class ScreenRecorder {
 
         } catch (e) {
             console.error('Failed to start recording:', e);
-            this.onError('Failed to start recording');
+            this.onError('Failed to start recording: ' + e.message);
             return false;
         }
     }
@@ -116,16 +128,29 @@ class ScreenRecorder {
             return;
         }
 
-        clearTimeout(this.recordingTimeout);
-        this.isRecording = false;
+        this.cleanup();
 
         try {
-            this.mediaRecorder.stop();
+            if (this.mediaRecorder.state !== 'inactive') {
+                this.mediaRecorder.stop();
+            }
         } catch (e) {
             console.error('Error stopping recorder:', e);
         }
 
         this.onStop();
+    }
+
+    cleanup() {
+        this.isRecording = false;
+        if (this.recordingTimeout) {
+            clearTimeout(this.recordingTimeout);
+            this.recordingTimeout = null;
+        }
+        if (this.progressInterval) {
+            clearInterval(this.progressInterval);
+            this.progressInterval = null;
+        }
     }
 
     finalizeRecording() {
@@ -135,20 +160,24 @@ class ScreenRecorder {
         }
 
         // Create blob from chunks
-        const blob = new Blob(this.chunks, { type: 'video/webm' });
+        const blob = new Blob(this.chunks, { type: this.mimeType });
         this.chunks = [];
 
         // Generate filename with timestamp
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-        const filename = `particle-dance-${timestamp}.webm`;
+        const extension = this.mimeType.includes('mp4') ? 'mp4' : 'webm';
+        const filename = `particle-dance-${timestamp}.${extension}`;
 
-        // Create download
+        // Create download URL
         const url = URL.createObjectURL(blob);
+
+        console.log(`Recording complete: ${(blob.size / 1024 / 1024).toFixed(2)} MB`);
 
         this.onComplete({
             blob,
             url,
             filename,
+            size: blob.size,
             download: () => this.downloadBlob(url, filename)
         });
     }
@@ -157,12 +186,13 @@ class ScreenRecorder {
         const a = document.createElement('a');
         a.href = url;
         a.download = filename;
+        a.style.display = 'none';
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
 
         // Revoke URL after download
-        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        setTimeout(() => URL.revokeObjectURL(url), 5000);
     }
 }
 

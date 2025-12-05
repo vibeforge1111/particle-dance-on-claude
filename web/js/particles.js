@@ -100,6 +100,9 @@ class ParticleSystem {
         this.lastTime = performance.now();
         this.fps = 60;
 
+        // Performance mode (reduces glow during recording)
+        this.performanceMode = false;
+
         // Initialize particles
         this.init();
     }
@@ -196,20 +199,26 @@ class ParticleSystem {
         const ctx = this.ctx;
         const width = this.canvas.width;
         const height = this.canvas.height;
+        const useGlow = this.glowEnabled && !this.performanceMode;
 
-        // Clear with gradient background
-        const gradient = ctx.createRadialGradient(
-            width / 2, height / 2, 0,
-            width / 2, height / 2, Math.max(width, height)
-        );
-        gradient.addColorStop(0, `hsl(${this.bgHue}, 50%, ${2 + this.bgBrightness}%)`);
-        gradient.addColorStop(1, `hsl(${this.bgHue + 20}, 60%, ${1}%)`);
+        // Clear with solid background (faster than gradient in performance mode)
+        if (this.performanceMode) {
+            ctx.fillStyle = `hsl(${this.bgHue}, 50%, 2%)`;
+            ctx.fillRect(0, 0, width, height);
+        } else {
+            const gradient = ctx.createRadialGradient(
+                width / 2, height / 2, 0,
+                width / 2, height / 2, Math.max(width, height)
+            );
+            gradient.addColorStop(0, `hsl(${this.bgHue}, 50%, ${2 + this.bgBrightness}%)`);
+            gradient.addColorStop(1, `hsl(${this.bgHue + 20}, 60%, ${1}%)`);
 
-        ctx.fillStyle = gradient;
-        ctx.fillRect(0, 0, width, height);
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, width, height);
+        }
 
         // Enable compositing for glow
-        if (this.glowEnabled) {
+        if (useGlow) {
             ctx.globalCompositeOperation = 'lighter';
         }
 
@@ -219,8 +228,8 @@ class ParticleSystem {
             const y = particle.y;
             const size = particle.size;
 
-            // Glow effect (outer soft circle)
-            if (this.glowEnabled) {
+            // Glow effect (outer soft circle) - skip in performance mode
+            if (useGlow) {
                 const glowSize = size * 4;
                 const glowGradient = ctx.createRadialGradient(x, y, 0, x, y, glowSize);
                 glowGradient.addColorStop(0, particle.getColor(0.3 * particle.glowIntensity));
@@ -240,13 +249,15 @@ class ParticleSystem {
             ctx.arc(x, y, size, 0, Math.PI * 2);
             ctx.fill();
 
-            // Bright center
-            ctx.fillStyle = particle.getColor(1);
-            ctx.beginPath();
-            ctx.arc(x, y, size * 0.5, 0, Math.PI * 2);
-            ctx.fill();
+            // Bright center (skip in performance mode for speed)
+            if (!this.performanceMode) {
+                ctx.fillStyle = particle.getColor(1);
+                ctx.beginPath();
+                ctx.arc(x, y, size * 0.5, 0, Math.PI * 2);
+                ctx.fill();
+            }
 
-            if (this.glowEnabled) {
+            if (useGlow) {
                 ctx.globalCompositeOperation = 'lighter';
             }
         }

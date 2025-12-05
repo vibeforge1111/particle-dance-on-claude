@@ -645,12 +645,18 @@ class ParticleDanceApp {
         this.ui.btnRecord.classList.add('recording');
         this.ui.recordingIndicator.classList.remove('hidden');
         this.ui.recTimer.textContent = '5';
+
+        // Enable performance mode for smoother recording
+        this.particles.performanceMode = true;
     }
 
     onRecordStop() {
         this.isRecording = false;
         this.ui.btnRecord.classList.remove('recording');
         this.ui.recordingIndicator.classList.add('hidden');
+
+        // Disable performance mode
+        this.particles.performanceMode = false;
     }
 
     onRecordProgress(remaining) {

@@ -41,6 +41,10 @@ class HandTracker {
 
         // Detection state
         this.handsDetected = false;
+
+        // Throttling for performance
+        this.lastProcessTime = 0;
+        this.processInterval = 50; // Process every 50ms (20 FPS) - enough for smooth tracking
     }
 
     async init() {
@@ -141,10 +145,17 @@ class HandTracker {
     async processFrame() {
         if (!this.enabled || !this.videoElement) return;
 
-        try {
-            await this.hands.send({ image: this.videoElement });
-        } catch (e) {
-            console.error('Error processing frame:', e);
+        const now = performance.now();
+
+        // Throttle processing for better performance
+        if (now - this.lastProcessTime >= this.processInterval) {
+            this.lastProcessTime = now;
+
+            try {
+                await this.hands.send({ image: this.videoElement });
+            } catch (e) {
+                console.error('Error processing frame:', e);
+            }
         }
 
         // Continue loop
