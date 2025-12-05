@@ -27,6 +27,12 @@ class ParticleDanceApp {
         this.hands = [];
         this.lastGesture = null;
 
+        // Tutorial state
+        this.tutorialActive = false;
+        this.tutorialStep = 1;
+        this.handDetectedTime = 0;
+        this.gestureCompleted = {};
+
         // UI elements
         this.ui = {
             modeIndicator: document.getElementById('mode-indicator'),
@@ -50,7 +56,10 @@ class ParticleDanceApp {
             btnSkipCamera: document.getElementById('btn-skip-camera'),
             handStatus: document.getElementById('hand-status'),
             handIcon: document.getElementById('hand-icon'),
-            handStatusText: document.getElementById('hand-status-text')
+            handStatusText: document.getElementById('hand-status-text'),
+            tutorial: document.getElementById('tutorial'),
+            tutorialDone: document.getElementById('tutorial-done'),
+            skipTutorial: document.getElementById('skip-tutorial')
         };
 
         // Initialize
@@ -173,6 +182,14 @@ class ParticleDanceApp {
         this.ui.btnEnableCamera.addEventListener('click', () => this.enableCamera());
         this.ui.btnSkipCamera.addEventListener('click', () => this.skipCamera());
 
+        // Tutorial buttons
+        if (this.ui.tutorialDone) {
+            this.ui.tutorialDone.addEventListener('click', () => this.endTutorial());
+        }
+        if (this.ui.skipTutorial) {
+            this.ui.skipTutorial.addEventListener('click', () => this.endTutorial());
+        }
+
         // Close help on click outside
         this.ui.helpModal.addEventListener('click', (e) => {
             if (e.target === this.ui.helpModal) {
@@ -199,6 +216,79 @@ class ParticleDanceApp {
         this.showCameraPrompt = false;
         await this.ensureAudioInit();
         await this.startHandTracking();
+
+        // Start tutorial
+        this.startTutorial();
+    }
+
+    // Tutorial system
+    startTutorial() {
+        this.tutorialActive = true;
+        this.tutorialStep = 1;
+        this.gestureCompleted = {};
+        this.ui.tutorial.classList.remove('hidden');
+        this.showTutorialStep(1);
+    }
+
+    showTutorialStep(step) {
+        // Hide all steps
+        document.querySelectorAll('.tutorial-step').forEach(el => {
+            el.classList.add('hidden');
+        });
+
+        // Show current step
+        const currentStep = document.querySelector(`.tutorial-step[data-step="${step}"]`);
+        if (currentStep) {
+            currentStep.classList.remove('hidden');
+        }
+
+        this.tutorialStep = step;
+    }
+
+    advanceTutorial() {
+        if (this.tutorialStep < 5) {
+            this.tutorialStep++;
+            this.showTutorialStep(this.tutorialStep);
+        }
+    }
+
+    updateTutorialProgress(progress) {
+        const progressBar = document.querySelector('.tutorial-progress .progress-bar');
+        if (progressBar) {
+            progressBar.style.width = `${progress * 100}%`;
+        }
+    }
+
+    checkTutorialGesture(gestureType) {
+        if (!this.tutorialActive) return;
+
+        // Step 1: Waiting for hand detection (handled separately)
+        // Step 2: Palm gesture
+        if (this.tutorialStep === 2 && gestureType === 'PALM') {
+            if (!this.gestureCompleted.palm) {
+                this.gestureCompleted.palm = true;
+                setTimeout(() => this.advanceTutorial(), 1500);
+            }
+        }
+        // Step 3: Fist gesture
+        else if (this.tutorialStep === 3 && gestureType === 'FIST') {
+            if (!this.gestureCompleted.fist) {
+                this.gestureCompleted.fist = true;
+                setTimeout(() => this.advanceTutorial(), 1500);
+            }
+        }
+        // Step 4: Point gesture
+        else if (this.tutorialStep === 4 && gestureType === 'POINT') {
+            if (!this.gestureCompleted.point) {
+                this.gestureCompleted.point = true;
+                setTimeout(() => this.advanceTutorial(), 1500);
+            }
+        }
+    }
+
+    endTutorial() {
+        this.tutorialActive = false;
+        this.ui.tutorial.classList.add('hidden');
     }
 
     skipCamera() {
@@ -254,6 +344,21 @@ class ParticleDanceApp {
         this.ui.handStatus.classList.add('tracking');
         this.ui.handStatusText.textContent = `${handsData.length} hand${handsData.length > 1 ? 's' : ''}`;
 
+        // Tutorial step 1: Track hand detection progress
+        if (this.tutorialActive && this.tutorialStep === 1) {
+            if (this.handDetectedTime === 0) {
+                this.handDetectedTime = Date.now();
+            }
+            const elapsed = Date.now() - this.handDetectedTime;
+            const progress = Math.min(elapsed / 2000, 1); // 2 seconds to complete
+            this.updateTutorialProgress(progress);
+
+            if (progress >= 1) {
+                this.advanceTutorial();
+                this.handDetectedTime = 0;
+            }
+        }
+
         // Process each hand
         for (const hand of handsData) {
             // Convert normalized coords to screen coords
@@ -281,6 +386,9 @@ class ParticleDanceApp {
         if (gesture.type !== this.lastGesture) {
             this.lastGesture = gesture.type;
             this.playGestureSound(gesture.type);
+
+            // Check tutorial progress
+            this.checkTutorialGesture(gesture.type);
         }
     }
 
@@ -364,6 +472,12 @@ class ParticleDanceApp {
         this.ui.handStatus.classList.add('lost');
         this.ui.handStatusText.textContent = 'Show hand';
         this.particles.mouseActive = false;
+
+        // Reset tutorial hand detection timer
+        if (this.tutorialActive && this.tutorialStep === 1) {
+            this.handDetectedTime = 0;
+            this.updateTutorialProgress(0);
+        }
     }
 
     // Mouse handlers

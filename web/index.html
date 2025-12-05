@@ -48,6 +48,51 @@
         <span id="hand-status-text">Tracking</span>
     </div>
 
+    <!-- Tutorial Overlay -->
+    <div id="tutorial" class="hidden">
+        <div class="tutorial-content">
+            <div class="tutorial-step" data-step="1">
+                <div class="tutorial-icon">🖐</div>
+                <h3>Show your hand</h3>
+                <p>Hold your open hand in front of the camera</p>
+                <div class="tutorial-hint">Keep it steady until we detect it...</div>
+                <div class="tutorial-progress">
+                    <div class="progress-bar"></div>
+                </div>
+            </div>
+
+            <div class="tutorial-step hidden" data-step="2">
+                <div class="tutorial-icon">✨</div>
+                <h3>Open Palm = Attract</h3>
+                <p>Particles flow toward your hand</p>
+                <div class="tutorial-demo">Try it now!</div>
+            </div>
+
+            <div class="tutorial-step hidden" data-step="3">
+                <div class="tutorial-icon">💥</div>
+                <h3>Closed Fist = Repel</h3>
+                <p>Make a fist to push particles away</p>
+                <div class="tutorial-demo">Try it now!</div>
+            </div>
+
+            <div class="tutorial-step hidden" data-step="4">
+                <div class="tutorial-icon">🌀</div>
+                <h3>Point = Swirl</h3>
+                <p>Point your finger to create a vortex</p>
+                <div class="tutorial-demo">Try it now!</div>
+            </div>
+
+            <div class="tutorial-step hidden" data-step="5">
+                <div class="tutorial-icon">🎉</div>
+                <h3>You're ready!</h3>
+                <p>Have fun playing with the particles</p>
+                <button id="tutorial-done" class="primary-btn">Let's Dance!</button>
+            </div>
+
+            <button id="skip-tutorial" class="skip-btn">Skip Tutorial</button>
+        </div>
+    </div>
+
     <!-- UI Overlay -->
     <div id="ui-overlay">
         <!-- Mode Indicator -->
