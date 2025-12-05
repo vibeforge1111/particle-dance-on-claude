@@ -1,6 +1,6 @@
 /**
  * Particle Dance - Main Application
- * Orchestrates particles, audio, recording, and UI
+ * Orchestrates particles, audio, hand tracking, and recording
  */
 
 class ParticleDanceApp {
@@ -12,13 +12,20 @@ class ParticleDanceApp {
         // Systems (initialized after user interaction)
         this.particles = null;
         this.audio = null;
+        this.handTracker = null;
         this.recorder = null;
 
         // State
         this.mode = 'attract';
         this.soundEnabled = true;
+        this.handTrackingEnabled = false;
         this.isRecording = false;
         this.hasInteracted = false;
+        this.showCameraPrompt = true;
+
+        // Hand tracking state
+        this.hands = [];
+        this.lastGesture = null;
 
         // UI elements
         this.ui = {
@@ -30,13 +37,20 @@ class ParticleDanceApp {
             btnSound: document.getElementById('btn-sound'),
             btnFullscreen: document.getElementById('btn-fullscreen'),
             btnRecord: document.getElementById('btn-record'),
+            btnHands: document.getElementById('btn-hands'),
             recordingIndicator: document.getElementById('recording-indicator'),
             recTimer: document.getElementById('rec-timer'),
             helpText: document.getElementById('help-text'),
             helpModal: document.getElementById('help-modal'),
             closeHelp: document.getElementById('close-help'),
             soundOn: document.getElementById('sound-on'),
-            soundOff: document.getElementById('sound-off')
+            soundOff: document.getElementById('sound-off'),
+            cameraPrompt: document.getElementById('camera-prompt'),
+            btnEnableCamera: document.getElementById('btn-enable-camera'),
+            btnSkipCamera: document.getElementById('btn-skip-camera'),
+            handStatus: document.getElementById('hand-status'),
+            handIcon: document.getElementById('hand-icon'),
+            handStatusText: document.getElementById('hand-status-text')
         };
 
         // Initialize
@@ -51,10 +65,21 @@ class ParticleDanceApp {
         // Start render loop
         this.particles.start();
 
+        // Show camera prompt after short delay (let particles load first)
+        setTimeout(() => {
+            if (this.showCameraPrompt && !this.isMobile()) {
+                this.ui.cameraPrompt.classList.remove('hidden');
+            }
+        }, 1500);
+
         // Fade out help text after 5 seconds
         setTimeout(() => {
             this.ui.helpText.classList.add('fade-out');
         }, 5000);
+    }
+
+    isMobile() {
+        return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
     }
 
     setupCanvas() {
@@ -99,6 +124,15 @@ class ParticleDanceApp {
         // Audio system
         this.audio = new AudioSystem();
 
+        // Hand tracker
+        this.handTracker = new HandTracker({
+            onHandsDetected: (hands) => this.onHandsDetected(hands),
+            onGesture: (gesture, hand) => this.onGesture(gesture, hand),
+            onTrackingLost: () => this.onTrackingLost(),
+            onReady: () => this.onHandTrackingReady(),
+            onError: (error) => this.onHandTrackingError(error)
+        });
+
         // Recorder
         this.recorder = new ScreenRecorder(this.canvas, {
             duration: 5000,
@@ -132,7 +166,12 @@ class ParticleDanceApp {
         this.ui.btnSound.addEventListener('click', () => this.toggleSound());
         this.ui.btnFullscreen.addEventListener('click', () => this.toggleFullscreen());
         this.ui.btnRecord.addEventListener('click', () => this.toggleRecording());
+        this.ui.btnHands.addEventListener('click', () => this.toggleHandTracking());
         this.ui.closeHelp.addEventListener('click', () => this.hideHelp());
+
+        // Camera prompt buttons
+        this.ui.btnEnableCamera.addEventListener('click', () => this.enableCamera());
+        this.ui.btnSkipCamera.addEventListener('click', () => this.skipCamera());
 
         // Close help on click outside
         this.ui.helpModal.addEventListener('click', (e) => {
@@ -154,18 +193,197 @@ class ParticleDanceApp {
         this.audio.resume();
     }
 
+    // Camera prompt handlers
+    async enableCamera() {
+        this.ui.cameraPrompt.classList.add('hidden');
+        this.showCameraPrompt = false;
+        await this.ensureAudioInit();
+        await this.startHandTracking();
+    }
+
+    skipCamera() {
+        this.ui.cameraPrompt.classList.add('hidden');
+        this.showCameraPrompt = false;
+    }
+
+    // Hand tracking
+    async startHandTracking() {
+        const success = await this.handTracker.start();
+        if (success) {
+            this.handTrackingEnabled = true;
+            this.ui.btnHands.classList.add('active');
+            this.ui.handStatus.classList.remove('hidden');
+        }
+    }
+
+    stopHandTracking() {
+        this.handTracker.stop();
+        this.handTrackingEnabled = false;
+        this.ui.btnHands.classList.remove('active');
+        this.ui.handStatus.classList.add('hidden');
+        this.particles.mouseActive = false;
+    }
+
+    async toggleHandTracking() {
+        await this.ensureAudioInit();
+        if (this.handTrackingEnabled) {
+            this.stopHandTracking();
+        } else {
+            await this.startHandTracking();
+        }
+    }
+
+    onHandTrackingReady() {
+        console.log('Hand tracking ready');
+        this.ui.handStatus.classList.add('tracking');
+        this.ui.handStatusText.textContent = 'Ready';
+    }
+
+    onHandTrackingError(error) {
+        console.error('Hand tracking error:', error);
+        this.ui.handStatus.classList.add('hidden');
+        this.handTrackingEnabled = false;
+        this.ui.btnHands.classList.remove('active');
+    }
+
+    onHandsDetected(handsData) {
+        this.hands = handsData;
+
+        // Update status
+        this.ui.handStatus.classList.remove('lost');
+        this.ui.handStatus.classList.add('tracking');
+        this.ui.handStatusText.textContent = `${handsData.length} hand${handsData.length > 1 ? 's' : ''}`;
+
+        // Process each hand
+        for (const hand of handsData) {
+            // Convert normalized coords to screen coords
+            const screenPos = this.handTracker.toScreenCoords(
+                hand.palmCenter,
+                window.innerWidth,
+                window.innerHeight
+            );
+
+            // Update particle system with hand position
+            this.particles.setMousePosition(screenPos.x, screenPos.y, true);
+
+            // Set mode based on gesture
+            this.handleGestureMode(hand.gesture);
+        }
+
+        // Two-hand gesture
+        if (handsData.twoHandGesture) {
+            this.handleTwoHandGesture(handsData.twoHandGesture);
+        }
+    }
+
+    onGesture(gesture, hand) {
+        // Only play sound if gesture changed
+        if (gesture.type !== this.lastGesture) {
+            this.lastGesture = gesture.type;
+            this.playGestureSound(gesture.type);
+        }
+    }
+
+    handleGestureMode(gesture) {
+        switch (gesture.type) {
+            case 'PALM':
+                if (this.mode !== 'attract') this.setMode('attract', true);
+                break;
+            case 'FIST':
+                if (this.mode !== 'repel') this.setMode('repel', true);
+                break;
+            case 'SPREAD':
+                // Explosion effect
+                this.particles.spawnBurst(
+                    this.particles.mouseX,
+                    this.particles.mouseY,
+                    20
+                );
+                break;
+            case 'PINCH':
+                // Spawn particles at pinch point
+                this.particles.spawnBurst(
+                    this.particles.mouseX,
+                    this.particles.mouseY,
+                    5
+                );
+                break;
+            case 'POINT':
+                if (this.mode !== 'swirl') this.setMode('swirl', true);
+                break;
+        }
+    }
+
+    handleTwoHandGesture(gesture) {
+        if (gesture.type === 'MERGE') {
+            // Pull all particles toward center
+            const centerX = gesture.center.x * window.innerWidth;
+            const centerY = gesture.center.y * window.innerHeight;
+            this.particles.setMousePosition(centerX, centerY, true);
+            this.particles.forceStrength = 0.8 * gesture.strength;
+        } else if (gesture.type === 'EXPAND') {
+            // Push particles outward
+            this.particles.forceStrength = -0.5 * gesture.strength;
+        }
+    }
+
+    playGestureSound(gestureType) {
+        if (!this.soundEnabled || !this.hasInteracted) return;
+
+        switch (gestureType) {
+            case 'PALM':
+                this.audio.playSoftPop(0.3);
+                break;
+            case 'FIST':
+                this.audio.playPop(
+                    this.particles.mouseX,
+                    this.particles.mouseY,
+                    window.innerWidth,
+                    window.innerHeight
+                );
+                break;
+            case 'PINCH':
+                this.audio.playPop(
+                    this.particles.mouseX,
+                    this.particles.mouseY,
+                    window.innerWidth,
+                    window.innerHeight
+                );
+                break;
+            case 'SPREAD':
+                // Multiple pops for explosion
+                for (let i = 0; i < 3; i++) {
+                    setTimeout(() => this.audio.playSoftPop(0.5), i * 50);
+                }
+                break;
+        }
+    }
+
+    onTrackingLost() {
+        this.ui.handStatus.classList.remove('tracking');
+        this.ui.handStatus.classList.add('lost');
+        this.ui.handStatusText.textContent = 'Show hand';
+        this.particles.mouseActive = false;
+    }
+
     // Mouse handlers
     handleMouseMove(e) {
+        if (this.handTrackingEnabled) return; // Hand tracking takes priority
+
         this.ensureAudioInit();
         this.particles.setMousePosition(e.clientX, e.clientY, true);
     }
 
     handleMouseEnter() {
-        this.particles.mouseActive = true;
+        if (!this.handTrackingEnabled) {
+            this.particles.mouseActive = true;
+        }
     }
 
     handleMouseLeave() {
-        this.particles.mouseActive = false;
+        if (!this.handTrackingEnabled) {
+            this.particles.mouseActive = false;
+        }
     }
 
     handleClick(e) {
@@ -230,14 +448,20 @@ class ParticleDanceApp {
             case 'h':
                 this.toggleHelp();
                 break;
+            case 'w':
+                this.toggleHandTracking();
+                break;
             case 'escape':
                 this.hideHelp();
+                if (this.ui.cameraPrompt) {
+                    this.ui.cameraPrompt.classList.add('hidden');
+                }
                 break;
         }
     }
 
     // Mode switching
-    setMode(mode) {
+    setMode(mode, silent = false) {
         this.mode = mode;
         this.particles.setMode(mode);
 
@@ -268,8 +492,8 @@ class ParticleDanceApp {
             this.ui.modeIndicator.classList.remove('visible');
         }, 1500);
 
-        // Sound feedback
-        if (this.soundEnabled && this.hasInteracted) {
+        // Sound feedback (unless silent mode for hand gestures)
+        if (!silent && this.soundEnabled && this.hasInteracted) {
             this.audio.playSoftPop(0.5);
         }
     }

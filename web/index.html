@@ -19,10 +19,34 @@
     <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 
     <link rel="stylesheet" href="css/style.css">
+
+    <!-- MediaPipe Dependencies -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
 </head>
 <body>
     <!-- Main Canvas -->
     <canvas id="particleCanvas"></canvas>
+
+    <!-- Camera Enable Prompt -->
+    <div id="camera-prompt" class="hidden">
+        <div class="prompt-content">
+            <div class="prompt-icon">🖐</div>
+            <h2>Control with your hands</h2>
+            <p>Enable your camera to control particles with hand gestures</p>
+            <div class="prompt-buttons">
+                <button id="btn-enable-camera" class="primary-btn">Enable Camera</button>
+                <button id="btn-skip-camera" class="secondary-btn">Use Cursor Instead</button>
+            </div>
+            <p class="privacy-note">Your camera stays on your device. We never record or upload.</p>
+        </div>
+    </div>
+
+    <!-- Hand Tracking Status -->
+    <div id="hand-status" class="hidden">
+        <span id="hand-icon">🖐</span>
+        <span id="hand-status-text">Tracking</span>
+    </div>
 
     <!-- UI Overlay -->
     <div id="ui-overlay">
@@ -33,6 +57,15 @@
 
         <!-- Control Buttons -->
         <div id="controls">
+            <!-- Hand Toggle Button -->
+            <button id="btn-hands" class="control-btn" title="Toggle Hand Tracking (W)">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M18 11V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2v1M14 10V4a2 2 0 0 0-2-2a2 2 0 0 0-2 2v6M10 10.5V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2v8"/>
+                    <path d="M18 8a2 2 0 0 1 2 2v7a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5v-1a2 2 0 0 1 2-2h1"/>
+                </svg>
+            </button>
+
+            <div class="divider"></div>
             <button id="btn-attract" class="mode-btn active" data-mode="attract" title="Attract (A)">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <circle cx="12" cy="12" r="3"/>
@@ -131,6 +164,7 @@
     <!-- Scripts -->
     <script src="js/particles.js"></script>
     <script src="js/audio.js"></script>
+    <script src="js/hands.js"></script>
     <script src="js/recorder.js"></script>
     <script src="js/app.js"></script>
 </body>
