@@ -44,7 +44,7 @@ class HandTracker {
 
         // Throttling for performance
         this.lastProcessTime = 0;
-        this.processInterval = 50; // Process every 50ms (20 FPS) - enough for smooth tracking
+        this.processInterval = 33; // Process every 33ms (~30 FPS) - responsive tracking
     }
 
     async init() {

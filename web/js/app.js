@@ -303,6 +303,9 @@ class ParticleDanceApp {
             this.handTrackingEnabled = true;
             this.ui.btnHands.classList.add('active');
             this.ui.handStatus.classList.remove('hidden');
+
+            // Enable performance mode for smoother experience with hand tracking
+            this.particles.performanceMode = true;
         }
     }
 
@@ -312,6 +315,11 @@ class ParticleDanceApp {
         this.ui.btnHands.classList.remove('active');
         this.ui.handStatus.classList.add('hidden');
         this.particles.mouseActive = false;
+
+        // Disable performance mode when not using hands
+        if (!this.isRecording) {
+            this.particles.performanceMode = false;
+        }
     }
 
     async toggleHandTracking() {
@@ -655,8 +663,10 @@ class ParticleDanceApp {
         this.ui.btnRecord.classList.remove('recording');
         this.ui.recordingIndicator.classList.add('hidden');
 
-        // Disable performance mode
-        this.particles.performanceMode = false;
+        // Only disable performance mode if hand tracking is off
+        if (!this.handTrackingEnabled) {
+            this.particles.performanceMode = false;
+        }
     }
 
     onRecordProgress(remaining) {
