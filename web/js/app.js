@@ -13,13 +13,11 @@ class ParticleDanceApp {
         this.particles = null;
         this.audio = null;
         this.handTracker = null;
-        this.recorder = null;
 
         // State
         this.mode = 'attract';
         this.soundEnabled = true;
         this.handTrackingEnabled = false;
-        this.isRecording = false;
         this.hasInteracted = false;
         this.showCameraPrompt = true;
 
@@ -42,10 +40,7 @@ class ParticleDanceApp {
             btnSwirl: document.getElementById('btn-swirl'),
             btnSound: document.getElementById('btn-sound'),
             btnFullscreen: document.getElementById('btn-fullscreen'),
-            btnRecord: document.getElementById('btn-record'),
             btnHands: document.getElementById('btn-hands'),
-            recordingIndicator: document.getElementById('recording-indicator'),
-            recTimer: document.getElementById('rec-timer'),
             helpText: document.getElementById('help-text'),
             helpModal: document.getElementById('help-modal'),
             closeHelp: document.getElementById('close-help'),
@@ -142,15 +137,6 @@ class ParticleDanceApp {
             onError: (error) => this.onHandTrackingError(error)
         });
 
-        // Recorder
-        this.recorder = new ScreenRecorder(this.canvas, {
-            duration: 5000,
-            onStart: () => this.onRecordStart(),
-            onStop: () => this.onRecordStop(),
-            onProgress: (remaining, progress) => this.onRecordProgress(remaining),
-            onComplete: (data) => this.onRecordComplete(data),
-            onError: (error) => console.error('Record error:', error)
-        });
     }
 
     setupEventListeners() {
@@ -174,7 +160,6 @@ class ParticleDanceApp {
         this.ui.btnSwirl.addEventListener('click', () => this.setMode('swirl'));
         this.ui.btnSound.addEventListener('click', () => this.toggleSound());
         this.ui.btnFullscreen.addEventListener('click', () => this.toggleFullscreen());
-        this.ui.btnRecord.addEventListener('click', () => this.toggleRecording());
         this.ui.btnHands.addEventListener('click', () => this.toggleHandTracking());
         this.ui.closeHelp.addEventListener('click', () => this.hideHelp());
 
@@ -317,9 +302,7 @@ class ParticleDanceApp {
         this.particles.mouseActive = false;
 
         // Disable performance mode when not using hands
-        if (!this.isRecording) {
-            this.particles.performanceMode = false;
-        }
+        this.particles.performanceMode = false;
     }
 
     async toggleHandTracking() {
@@ -427,6 +410,24 @@ class ParticleDanceApp {
             case 'POINT':
                 if (this.mode !== 'swirl') this.setMode('swirl', true);
                 break;
+            case 'PEACE':
+                // Calming wave effect
+                this.particles.waveEffect(
+                    this.particles.mouseX,
+                    this.particles.mouseY
+                );
+                break;
+            case 'THUMBS_UP':
+                // Energy boost!
+                this.particles.energyBoost();
+                break;
+            case 'ROCK':
+                // Chaos mode!
+                this.particles.chaosMode(
+                    this.particles.mouseX,
+                    this.particles.mouseY
+                );
+                break;
         }
     }
 
@@ -470,6 +471,27 @@ class ParticleDanceApp {
                 // Multiple pops for explosion
                 for (let i = 0; i < 3; i++) {
                     setTimeout(() => this.audio.playSoftPop(0.5), i * 50);
+                }
+                break;
+            case 'PEACE':
+                // Soft, calming sound
+                this.audio.playSoftPop(0.2);
+                break;
+            case 'THUMBS_UP':
+                // Energetic rising pops
+                for (let i = 0; i < 5; i++) {
+                    setTimeout(() => this.audio.playSoftPop(0.4 + i * 0.1), i * 30);
+                }
+                break;
+            case 'ROCK':
+                // Chaotic rapid pops
+                for (let i = 0; i < 4; i++) {
+                    setTimeout(() => this.audio.playPop(
+                        Math.random() * window.innerWidth,
+                        Math.random() * window.innerHeight,
+                        window.innerWidth,
+                        window.innerHeight
+                    ), i * 40);
                 }
                 break;
         }
@@ -563,10 +585,6 @@ class ParticleDanceApp {
             case 'f':
                 this.toggleFullscreen();
                 break;
-            case ' ':
-                e.preventDefault();
-                this.toggleRecording();
-                break;
             case 'h':
                 this.toggleHelp();
                 break;
@@ -637,48 +655,6 @@ class ParticleDanceApp {
         } else {
             document.exitFullscreen();
         }
-    }
-
-    // Recording
-    toggleRecording() {
-        if (this.isRecording) {
-            this.recorder.stop();
-        } else {
-            this.recorder.start();
-        }
-    }
-
-    onRecordStart() {
-        this.isRecording = true;
-        this.ui.btnRecord.classList.add('recording');
-        this.ui.recordingIndicator.classList.remove('hidden');
-        this.ui.recTimer.textContent = '5';
-
-        // Enable performance mode for smoother recording
-        this.particles.performanceMode = true;
-    }
-
-    onRecordStop() {
-        this.isRecording = false;
-        this.ui.btnRecord.classList.remove('recording');
-        this.ui.recordingIndicator.classList.add('hidden');
-
-        // Only disable performance mode if hand tracking is off
-        if (!this.handTrackingEnabled) {
-            this.particles.performanceMode = false;
-        }
-    }
-
-    onRecordProgress(remaining) {
-        this.ui.recTimer.textContent = remaining;
-    }
-
-    onRecordComplete(data) {
-        // Auto-download
-        data.download();
-
-        // Could also show a preview/share modal here
-        console.log('Recording complete:', data.filename);
     }
 
     // Help modal

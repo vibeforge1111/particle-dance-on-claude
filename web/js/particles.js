@@ -355,6 +355,56 @@ class ParticleSystem {
 
         return true; // Signal that burst happened (for sound)
     }
+
+    // Wave effect - particles ripple outward in a calming pattern
+    waveEffect(x, y) {
+        const time = performance.now() * 0.003;
+        for (const particle of this.particles) {
+            const dx = particle.x - x;
+            const dy = particle.y - y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+
+            if (dist < 300 && dist > 10) {
+                // Sine wave pushes particles in and out
+                const wave = Math.sin(dist * 0.02 - time) * 0.3;
+                const angle = Math.atan2(dy, dx);
+                particle.applyForce(
+                    Math.cos(angle) * wave,
+                    Math.sin(angle) * wave
+                );
+            }
+        }
+    }
+
+    // Energy boost - all particles get excited and speed up
+    energyBoost() {
+        for (const particle of this.particles) {
+            // Add random velocity
+            particle.vx += (Math.random() - 0.5) * 4;
+            particle.vy += (Math.random() - 0.5) * 4;
+            // Brighten
+            particle.lightness = Math.min(80, particle.lightness + 10);
+        }
+    }
+
+    // Chaos mode - particles go wild with random forces
+    chaosMode(x, y) {
+        for (const particle of this.particles) {
+            const dx = particle.x - x;
+            const dy = particle.y - y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+
+            if (dist < 250) {
+                // Random jittery forces
+                particle.applyForce(
+                    (Math.random() - 0.5) * 2,
+                    (Math.random() - 0.5) * 2
+                );
+                // Cycle colors faster
+                particle.hue = (particle.hue + 5) % 360;
+            }
+        }
+    }
 }
 
 // Export for use in app.js

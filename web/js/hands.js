@@ -252,9 +252,35 @@ class HandTracker {
         const pinchDistance = this.distance(landmarks[this.THUMB_TIP], landmarks[this.INDEX_TIP]);
         const fingerSpread = this.calculateFingerSpread(landmarks);
 
+        // Check specific finger states
+        const indexExtended = this.isFingerExtended(landmarks, this.INDEX_TIP);
+        const middleExtended = this.isFingerExtended(landmarks, this.MIDDLE_TIP);
+        const ringExtended = this.isFingerExtended(landmarks, this.RING_TIP);
+        const pinkyExtended = this.isFingerExtended(landmarks, this.PINKY_TIP);
+        const thumbExtended = Math.abs(landmarks[this.THUMB_TIP].x - landmarks[this.WRIST].x) > 0.1;
+
         // Pinch (highest priority)
         if (pinchDistance < this.PINCH_THRESHOLD && fingersExtended <= 2) {
             return { type: 'PINCH', confidence: 0.9, pinchDistance };
+        }
+
+        // Thumbs up (thumb extended, others closed)
+        if (thumbExtended && !indexExtended && !middleExtended && !ringExtended && !pinkyExtended) {
+            // Check thumb is pointing up (thumb tip above thumb base)
+            const thumbUp = landmarks[this.THUMB_TIP].y < landmarks[2].y;
+            if (thumbUp) {
+                return { type: 'THUMBS_UP', confidence: 0.85 };
+            }
+        }
+
+        // Peace sign (index + middle extended, others closed)
+        if (indexExtended && middleExtended && !ringExtended && !pinkyExtended) {
+            return { type: 'PEACE', confidence: 0.85 };
+        }
+
+        // Rock sign (index + pinky extended, middle + ring closed)
+        if (indexExtended && !middleExtended && !ringExtended && pinkyExtended) {
+            return { type: 'ROCK', confidence: 0.85 };
         }
 
         // Fist
@@ -273,7 +299,7 @@ class HandTracker {
         }
 
         // Pointing (index only)
-        if (fingersExtended === 1 && this.isFingerExtended(landmarks, this.INDEX_TIP)) {
+        if (fingersExtended === 1 && indexExtended) {
             return { type: 'POINT', confidence: 0.8 };
         }
 
