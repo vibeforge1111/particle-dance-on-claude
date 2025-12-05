@@ -310,16 +310,16 @@ class HandTracker {
         let count = 0;
 
         // Thumb
-        const thumbExtended = Math.abs(landmarks[this.THUMB_TIP].x - landmarks[this.WRIST].x) > 0.1;
-        if (thumbExtended) count++;
+        if (Math.abs(landmarks[4].x - landmarks[0].x) > 0.1) count++;
 
-        // Other fingers
-        const fingerTips = [this.INDEX_TIP, this.MIDDLE_TIP, this.RING_TIP, this.PINKY_TIP];
-        for (const tip of fingerTips) {
-            if (this.isFingerExtended(landmarks, tip)) {
-                count++;
-            }
-        }
+        // Index
+        if (landmarks[8].y < landmarks[6].y - 0.02) count++;
+        // Middle
+        if (landmarks[12].y < landmarks[10].y - 0.02) count++;
+        // Ring
+        if (landmarks[16].y < landmarks[14].y - 0.02) count++;
+        // Pinky
+        if (landmarks[20].y < landmarks[18].y - 0.02) count++;
 
         return count;
     }
@@ -337,8 +337,8 @@ class HandTracker {
     distance(p1, p2) {
         const dx = p1.x - p2.x;
         const dy = p1.y - p2.y;
-        const dz = (p1.z || 0) - (p2.z || 0);
-        return Math.sqrt(dx * dx + dy * dy + dz * dz);
+        // Skip z for faster calculation - 2D distance is sufficient for gestures
+        return Math.sqrt(dx * dx + dy * dy);
     }
 
     smoothGesture(gesture, handId) {

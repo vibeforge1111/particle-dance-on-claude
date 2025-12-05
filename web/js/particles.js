@@ -1,7 +1,11 @@
 /**
  * Particle Dance - Particle System
- * Beautiful, performant particle physics with Canvas 2D
+ * Optimized for 60fps with hundreds of particles
  */
+
+// Pre-computed constants
+const TWO_PI = Math.PI * 2;
+const DEG_TO_RAD = Math.PI / 180;
 
 class Particle {
     constructor(x, y, options = {}) {
@@ -23,16 +27,29 @@ class Particle {
         // Physics
         this.friction = 0.98;
         this.maxSpeed = 15;
+        this.maxSpeedSq = 225; // Pre-computed squared value
 
         // Glow intensity
         this.glowIntensity = 0.5 + Math.random() * 0.5;
 
         // For color cycling
-        this.hueOffset = Math.random() * 30;
         this.hueSpeed = 0.1 + Math.random() * 0.2;
+
+        // Pre-cache color strings (updated periodically, not every frame)
+        this._colorCache = '';
+        this._colorCacheAlpha = -1;
+        this._updateColorCache();
     }
 
-    update(dt, width, height) {
+    _updateColorCache() {
+        // Round values for better string caching
+        const h = Math.round(this.hue);
+        const s = Math.round(this.saturation);
+        const l = Math.round(this.lightness);
+        this._colorBase = `${h},${s}%,${l}%`;
+    }
+
+    update(width, height) {
         // Apply velocity
         this.x += this.vx;
         this.y += this.vy;
@@ -41,24 +58,30 @@ class Particle {
         this.vx *= this.friction;
         this.vy *= this.friction;
 
-        // Speed limit
-        const speed = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
-        if (speed > this.maxSpeed) {
-            this.vx = (this.vx / speed) * this.maxSpeed;
-            this.vy = (this.vy / speed) * this.maxSpeed;
+        // Speed limit using squared distance (avoid sqrt)
+        const speedSq = this.vx * this.vx + this.vy * this.vy;
+        if (speedSq > this.maxSpeedSq) {
+            const scale = this.maxSpeed / Math.sqrt(speedSq);
+            this.vx *= scale;
+            this.vy *= scale;
         }
 
         // Boundary wrapping (seamless)
         if (this.x < -20) this.x = width + 20;
-        if (this.x > width + 20) this.x = -20;
+        else if (this.x > width + 20) this.x = -20;
         if (this.y < -20) this.y = height + 20;
-        if (this.y > height + 20) this.y = -20;
+        else if (this.y > height + 20) this.y = -20;
 
         // Slowly cycle hue for shimmer effect
         this.hue = (this.hue + this.hueSpeed) % 360;
 
-        // Size pulse based on speed
-        this.size = this.baseSize + speed * 0.3;
+        // Size pulse based on speed (use squared speed approximation)
+        this.size = this.baseSize + Math.sqrt(speedSq) * 0.3;
+
+        // Update color cache occasionally (every ~10 frames worth of hue change)
+        if (Math.random() < 0.1) {
+            this._updateColorCache();
+        }
     }
 
     applyForce(fx, fy) {
@@ -66,15 +89,16 @@ class Particle {
         this.vy += fy;
     }
 
-    getColor(alpha = this.alpha) {
-        return `hsla(${this.hue}, ${this.saturation}%, ${this.lightness}%, ${alpha})`;
+    getColor(alpha) {
+        if (alpha === undefined) alpha = this.alpha;
+        return `hsla(${this._colorBase},${alpha})`;
     }
 }
 
 class ParticleSystem {
     constructor(canvas, options = {}) {
         this.canvas = canvas;
-        this.ctx = canvas.getContext('2d');
+        this.ctx = canvas.getContext('2d', { alpha: false });
         this.particles = [];
 
         // Options
@@ -85,51 +109,59 @@ class ParticleSystem {
         this.mouseX = canvas.width / 2;
         this.mouseY = canvas.height / 2;
         this.mouseActive = false;
-        this.mode = 'attract'; // attract, repel, swirl
+        this.mode = 'attract';
 
         // Force settings
         this.forceRadius = 200;
+        this.forceRadiusSq = 40000; // Pre-computed
         this.forceStrength = 0.5;
 
-        // Background breathing
-        this.bgHue = 270; // Deep purple
+        // Background
+        this.bgHue = 270;
         this.bgBrightness = 0;
         this.bgDirection = 1;
 
         // Performance
         this.lastTime = performance.now();
         this.fps = 60;
-
-        // Performance mode (reduces glow during recording)
         this.performanceMode = false;
-
-        // Cursor visibility
         this.cursorVisible = true;
 
-        // Initialize particles
+        // Pre-computed values for cursor colors
+        this._cursorColors = {
+            attract: 'rgba(0,217,255,',
+            repel: 'rgba(255,0,255,',
+            swirl: 'rgba(255,215,0,'
+        };
+
+        // Background color cache
+        this._bgColorCache = '';
+        this._lastBgBrightness = -1;
+
         this.init();
     }
 
     init() {
         this.particles = [];
+        const w = this.canvas.width;
+        const h = this.canvas.height;
         for (let i = 0; i < this.particleCount; i++) {
             this.particles.push(new Particle(
-                Math.random() * this.canvas.width,
-                Math.random() * this.canvas.height,
-                { hue: (i / this.particleCount) * 360 } // Spectrum distribution
+                Math.random() * w,
+                Math.random() * h,
+                { hue: (i / this.particleCount) * 360 }
             ));
         }
     }
 
     resize(width, height) {
-        // Scale particle positions
         const scaleX = width / this.canvas.width;
         const scaleY = height / this.canvas.height;
-
-        this.particles.forEach(p => {
-            p.x *= scaleX;
-            p.y *= scaleY;
-        });
+        const particles = this.particles;
+        for (let i = 0, len = particles.length; i < len; i++) {
+            particles[i].x *= scaleX;
+            particles[i].y *= scaleY;
+        }
     }
 
     setMode(mode) {
@@ -142,59 +174,60 @@ class ParticleSystem {
         this.mouseActive = active;
     }
 
-    update(dt) {
+    update() {
         const width = this.canvas.width;
         const height = this.canvas.height;
+        const particles = this.particles;
+        const len = particles.length;
 
         // Update background breathing
         this.bgBrightness += 0.1 * this.bgDirection;
         if (this.bgBrightness > 3) this.bgDirection = -1;
-        if (this.bgBrightness < 0) this.bgDirection = 1;
+        else if (this.bgBrightness < 0) this.bgDirection = 1;
+
+        // Cache mouse state
+        const mouseActive = this.mouseActive;
+        const mouseX = this.mouseX;
+        const mouseY = this.mouseY;
+        const forceRadiusSq = this.forceRadiusSq;
+        const forceRadius = this.forceRadius;
+        const forceStrength = this.forceStrength;
+        const mode = this.mode;
 
         // Update particles
-        for (const particle of this.particles) {
+        for (let i = 0; i < len; i++) {
+            const particle = particles[i];
+
             // Apply interaction forces
-            if (this.mouseActive) {
-                const dx = this.mouseX - particle.x;
-                const dy = this.mouseY - particle.y;
-                const dist = Math.sqrt(dx * dx + dy * dy);
+            if (mouseActive) {
+                const dx = mouseX - particle.x;
+                const dy = mouseY - particle.y;
+                const distSq = dx * dx + dy * dy;
 
-                if (dist < this.forceRadius && dist > 1) {
-                    const force = (1 - dist / this.forceRadius) * this.forceStrength;
-                    const angle = Math.atan2(dy, dx);
+                if (distSq < forceRadiusSq && distSq > 1) {
+                    const dist = Math.sqrt(distSq);
+                    const force = (1 - dist / forceRadius) * forceStrength;
+                    const invDist = 1 / dist;
+                    const nx = dx * invDist; // Normalized
+                    const ny = dy * invDist;
 
-                    switch (this.mode) {
-                        case 'attract':
-                            // Pull toward cursor
-                            particle.applyForce(
-                                Math.cos(angle) * force,
-                                Math.sin(angle) * force
-                            );
-                            break;
-
-                        case 'repel':
-                            // Push away from cursor
-                            particle.applyForce(
-                                -Math.cos(angle) * force * 1.5,
-                                -Math.sin(angle) * force * 1.5
-                            );
-                            break;
-
-                        case 'swirl':
-                            // Orbital motion around cursor
-                            const perpAngle = angle + Math.PI / 2;
-                            const pullForce = force * 0.3;
-                            const swirlForce = force * 0.8;
-                            particle.applyForce(
-                                Math.cos(perpAngle) * swirlForce + Math.cos(angle) * pullForce,
-                                Math.sin(perpAngle) * swirlForce + Math.sin(angle) * pullForce
-                            );
-                            break;
+                    if (mode === 'attract') {
+                        particle.vx += nx * force;
+                        particle.vy += ny * force;
+                    } else if (mode === 'repel') {
+                        const f = force * 1.5;
+                        particle.vx -= nx * f;
+                        particle.vy -= ny * f;
+                    } else { // swirl
+                        const pullForce = force * 0.3;
+                        const swirlForce = force * 0.8;
+                        particle.vx += -ny * swirlForce + nx * pullForce;
+                        particle.vy += nx * swirlForce + ny * pullForce;
                     }
                 }
             }
 
-            particle.update(dt, width, height);
+            particle.update(width, height);
         }
     }
 
@@ -202,73 +235,81 @@ class ParticleSystem {
         const ctx = this.ctx;
         const width = this.canvas.width;
         const height = this.canvas.height;
-        const useGlow = this.glowEnabled && !this.performanceMode;
+        const particles = this.particles;
+        const len = particles.length;
+        const performanceMode = this.performanceMode;
 
-        // Clear with solid background (faster than gradient in performance mode)
-        if (this.performanceMode) {
-            ctx.fillStyle = `hsl(${this.bgHue}, 50%, 2%)`;
+        // Clear with background
+        if (performanceMode) {
+            ctx.fillStyle = '#0D0214';
             ctx.fillRect(0, 0, width, height);
         } else {
-            const gradient = ctx.createRadialGradient(
-                width / 2, height / 2, 0,
-                width / 2, height / 2, Math.max(width, height)
-            );
-            gradient.addColorStop(0, `hsl(${this.bgHue}, 50%, ${2 + this.bgBrightness}%)`);
-            gradient.addColorStop(1, `hsl(${this.bgHue + 20}, 60%, ${1}%)`);
-
-            ctx.fillStyle = gradient;
+            // Only recreate gradient if brightness changed significantly
+            const brightRounded = Math.round(this.bgBrightness);
+            if (brightRounded !== this._lastBgBrightness) {
+                this._lastBgBrightness = brightRounded;
+                const gradient = ctx.createRadialGradient(
+                    width / 2, height / 2, 0,
+                    width / 2, height / 2, Math.max(width, height)
+                );
+                gradient.addColorStop(0, `hsl(270,50%,${2 + brightRounded}%)`);
+                gradient.addColorStop(1, 'hsl(290,60%,1%)');
+                this._bgGradient = gradient;
+            }
+            ctx.fillStyle = this._bgGradient;
             ctx.fillRect(0, 0, width, height);
         }
 
-        // Enable compositing for glow
-        if (useGlow) {
+        // Batch render particles
+        if (performanceMode) {
+            // Simple circles only - maximum performance
+            for (let i = 0; i < len; i++) {
+                const p = particles[i];
+                ctx.fillStyle = p.getColor();
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, p.size, 0, TWO_PI);
+                ctx.fill();
+            }
+        } else {
+            // Glow mode - render glow layer first, then cores
             ctx.globalCompositeOperation = 'lighter';
-        }
 
-        // Render particles
-        for (const particle of this.particles) {
-            const x = particle.x;
-            const y = particle.y;
-            const size = particle.size;
-
-            // Glow effect (outer soft circle) - skip in performance mode
-            if (useGlow) {
-                const glowSize = size * 4;
-                const glowGradient = ctx.createRadialGradient(x, y, 0, x, y, glowSize);
-                glowGradient.addColorStop(0, particle.getColor(0.3 * particle.glowIntensity));
-                glowGradient.addColorStop(0.5, particle.getColor(0.1 * particle.glowIntensity));
-                glowGradient.addColorStop(1, particle.getColor(0));
-
-                ctx.fillStyle = glowGradient;
+            // Glow pass - simplified gradient (only 2 stops)
+            for (let i = 0; i < len; i++) {
+                const p = particles[i];
+                const glowSize = p.size * 3;
+                const gradient = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, glowSize);
+                gradient.addColorStop(0, p.getColor(0.25 * p.glowIntensity));
+                gradient.addColorStop(1, p.getColor(0));
+                ctx.fillStyle = gradient;
                 ctx.beginPath();
-                ctx.arc(x, y, glowSize, 0, Math.PI * 2);
+                ctx.arc(p.x, p.y, glowSize, 0, TWO_PI);
                 ctx.fill();
             }
 
-            // Core particle
+            // Core pass
             ctx.globalCompositeOperation = 'source-over';
-            ctx.fillStyle = particle.getColor();
-            ctx.beginPath();
-            ctx.arc(x, y, size, 0, Math.PI * 2);
-            ctx.fill();
-
-            // Bright center (skip in performance mode for speed)
-            if (!this.performanceMode) {
-                ctx.fillStyle = particle.getColor(1);
+            for (let i = 0; i < len; i++) {
+                const p = particles[i];
+                ctx.fillStyle = p.getColor();
                 ctx.beginPath();
-                ctx.arc(x, y, size * 0.5, 0, Math.PI * 2);
+                ctx.arc(p.x, p.y, p.size, 0, TWO_PI);
                 ctx.fill();
             }
 
-            if (useGlow) {
-                ctx.globalCompositeOperation = 'lighter';
+            // Bright center pass
+            for (let i = 0; i < len; i++) {
+                const p = particles[i];
+                ctx.fillStyle = p.getColor(1);
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, p.size * 0.5, 0, TWO_PI);
+                ctx.fill();
             }
         }
 
-        // Reset compositing
         ctx.globalCompositeOperation = 'source-over';
 
-        // Render cursor glow indicator
+        // Render cursor
         if (this.mouseActive && this.cursorVisible) {
             this.renderCursor(ctx);
         }
@@ -277,56 +318,28 @@ class ParticleSystem {
     renderCursor(ctx) {
         const x = this.mouseX;
         const y = this.mouseY;
+        const color = this._cursorColors[this.mode];
 
-        // Mode-specific colors
-        let color;
-        switch (this.mode) {
-            case 'attract':
-                color = 'rgba(0, 217, 255, '; // Cyan
-                break;
-            case 'repel':
-                color = 'rgba(255, 0, 255, '; // Magenta
-                break;
-            case 'swirl':
-                color = 'rgba(255, 215, 0, '; // Gold
-                break;
-        }
-
-        // Outer glow
-        const gradient = ctx.createRadialGradient(x, y, 0, x, y, 60);
-        gradient.addColorStop(0, color + '0.3)');
-        gradient.addColorStop(0.5, color + '0.1)');
-        gradient.addColorStop(1, color + '0)');
-
-        ctx.fillStyle = gradient;
-        ctx.beginPath();
-        ctx.arc(x, y, 60, 0, Math.PI * 2);
-        ctx.fill();
-
-        // Inner ring
+        // Simplified cursor - just ring and dot
         ctx.strokeStyle = color + '0.5)';
         ctx.lineWidth = 2;
         ctx.beginPath();
-        ctx.arc(x, y, 20, 0, Math.PI * 2);
+        ctx.arc(x, y, 20, 0, TWO_PI);
         ctx.stroke();
 
-        // Center dot
         ctx.fillStyle = color + '0.8)';
         ctx.beginPath();
-        ctx.arc(x, y, 4, 0, Math.PI * 2);
+        ctx.arc(x, y, 4, 0, TWO_PI);
         ctx.fill();
     }
 
-    // Animation loop
     animate() {
         const now = performance.now();
-        const dt = Math.min((now - this.lastTime) / 1000, 0.1); // Cap delta time
+        const dt = Math.min((now - this.lastTime) / 1000, 0.1);
         this.lastTime = now;
-
-        // Calculate FPS
         this.fps = 1 / dt;
 
-        this.update(dt);
+        this.update();
         this.render();
 
         requestAnimationFrame(() => this.animate());
@@ -337,78 +350,75 @@ class ParticleSystem {
         this.animate();
     }
 
-    // Spawn burst of particles at position
     spawnBurst(x, y, count = 10) {
+        const particles = this.particles;
+        const maxLen = this.particleCount * 1.2;
+
         for (let i = 0; i < count; i++) {
-            const angle = (i / count) * Math.PI * 2;
+            const angle = (i / count) * TWO_PI;
             const speed = 2 + Math.random() * 3;
 
-            const particle = new Particle(x, y, {
-                hue: Math.random() * 360
-            });
+            const particle = new Particle(x, y, { hue: Math.random() * 360 });
             particle.vx = Math.cos(angle) * speed;
             particle.vy = Math.sin(angle) * speed;
 
-            // Replace oldest particle if at limit
-            if (this.particles.length >= this.particleCount * 1.2) {
-                this.particles.shift();
+            if (particles.length >= maxLen) {
+                particles.shift();
             }
-            this.particles.push(particle);
+            particles.push(particle);
         }
-
-        return true; // Signal that burst happened (for sound)
+        return true;
     }
 
-    // Wave effect - particles ripple outward in a calming pattern
     waveEffect(x, y) {
         const time = performance.now() * 0.003;
-        for (const particle of this.particles) {
-            const dx = particle.x - x;
-            const dy = particle.y - y;
-            const dist = Math.sqrt(dx * dx + dy * dy);
+        const particles = this.particles;
+        const len = particles.length;
 
-            if (dist < 300 && dist > 10) {
-                // Sine wave pushes particles in and out
+        for (let i = 0; i < len; i++) {
+            const p = particles[i];
+            const dx = p.x - x;
+            const dy = p.y - y;
+            const distSq = dx * dx + dy * dy;
+
+            if (distSq < 90000 && distSq > 100) { // 300^2 and 10^2
+                const dist = Math.sqrt(distSq);
                 const wave = Math.sin(dist * 0.02 - time) * 0.3;
-                const angle = Math.atan2(dy, dx);
-                particle.applyForce(
-                    Math.cos(angle) * wave,
-                    Math.sin(angle) * wave
-                );
+                const invDist = 1 / dist;
+                p.vx += dx * invDist * wave;
+                p.vy += dy * invDist * wave;
             }
         }
     }
 
-    // Energy boost - all particles get excited and speed up
     energyBoost() {
-        for (const particle of this.particles) {
-            // Add random velocity
-            particle.vx += (Math.random() - 0.5) * 4;
-            particle.vy += (Math.random() - 0.5) * 4;
-            // Brighten
-            particle.lightness = Math.min(80, particle.lightness + 10);
+        const particles = this.particles;
+        const len = particles.length;
+        for (let i = 0; i < len; i++) {
+            const p = particles[i];
+            p.vx += (Math.random() - 0.5) * 4;
+            p.vy += (Math.random() - 0.5) * 4;
+            p.lightness = Math.min(80, p.lightness + 10);
         }
     }
 
-    // Chaos mode - particles go wild with random forces
     chaosMode(x, y) {
-        for (const particle of this.particles) {
-            const dx = particle.x - x;
-            const dy = particle.y - y;
-            const dist = Math.sqrt(dx * dx + dy * dy);
+        const particles = this.particles;
+        const len = particles.length;
 
-            if (dist < 250) {
-                // Random jittery forces
-                particle.applyForce(
-                    (Math.random() - 0.5) * 2,
-                    (Math.random() - 0.5) * 2
-                );
-                // Cycle colors faster
-                particle.hue = (particle.hue + 5) % 360;
+        for (let i = 0; i < len; i++) {
+            const p = particles[i];
+            const dx = p.x - x;
+            const dy = p.y - y;
+            const distSq = dx * dx + dy * dy;
+
+            if (distSq < 62500) { // 250^2
+                p.vx += (Math.random() - 0.5) * 2;
+                p.vy += (Math.random() - 0.5) * 2;
+                p.hue = (p.hue + 5) % 360;
             }
         }
     }
 }
 
-// Export for use in app.js
 window.ParticleSystem = ParticleSystem;
