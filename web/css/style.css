@@ -29,7 +29,7 @@ html, body {
     font-family: 'Space Grotesk', -apple-system, BlinkMacSystemFont, sans-serif;
     background: var(--bg-primary);
     color: var(--text-primary);
-    cursor: none;
+    cursor: crosshair;
     -webkit-tap-highlight-color: transparent;
     user-select: none;
 }
