@@ -7,7 +7,7 @@ import sys
 import time
 
 from particle import ParticleSystem
-from gesture import GestureDetector, MouseGestureDetector, Gesture, MEDIAPIPE_AVAILABLE, create_gesture_detector
+from gesture import GestureDetector, MouseGestureDetector, Gesture, GestureState, MEDIAPIPE_AVAILABLE, create_gesture_detector
 from audio import AudioSystem
 from renderer import ParticleRenderer
 
@@ -28,11 +28,24 @@ class GestureFlow:
         self.screen_width = display_info.current_w
         self.screen_height = display_info.current_h
 
-        # Start windowed (can toggle fullscreen with F)
-        self.fullscreen = False
+        # Start FULLSCREEN by default (per PRD)
+        self.fullscreen = True
         self.window_width = 1280
         self.window_height = 720
-        self.screen = pygame.display.set_mode((self.window_width, self.window_height), pygame.RESIZABLE)
+
+        if self.fullscreen:
+            self.screen = pygame.display.set_mode(
+                (self.screen_width, self.screen_height),
+                pygame.FULLSCREEN
+            )
+            current_width, current_height = self.screen_width, self.screen_height
+        else:
+            self.screen = pygame.display.set_mode(
+                (self.window_width, self.window_height),
+                pygame.RESIZABLE
+            )
+            current_width, current_height = self.window_width, self.window_height
+
         pygame.display.set_caption("GestureFlow - ASMR Particle Simulator")
 
         # Initialize clock
@@ -43,13 +56,16 @@ class GestureFlow:
         # Initialize systems
         self.particle_system = ParticleSystem(
             max_particles=2000,
-            width=self.window_width,
-            height=self.window_height
+            width=current_width,
+            height=current_height
         )
 
         # Create gesture detector (MediaPipe or Mouse fallback)
         self.gesture_detector, self.using_camera = create_gesture_detector(use_camera=True)
-        self.gesture_detector.set_screen_size(self.window_width, self.window_height)
+        self.gesture_detector.set_screen_size(current_width, current_height)
+
+        # Multi-hand gesture state
+        self.gesture_state = GestureState()
 
         self.audio_system = AudioSystem()
         self.renderer = ParticleRenderer(self.screen)
@@ -68,12 +84,15 @@ class GestureFlow:
             'glow': True,
             'trails': True,
             'audio': True,
+            'binaural': False,
         }
 
         # Interaction state
         self.last_spawn_time = 0
         self.spawn_cooldown = 0.3  # seconds
         self.last_gesture_sounds = {}
+        self.last_gravity_change = 0
+        self.last_two_hands_sound = 0
 
         # Performance
         self.frame_times = []
@@ -88,7 +107,7 @@ class GestureFlow:
         else:
             print("Running in MOUSE mode - use mouse buttons to control particles")
             print("  Left click: Attract | Right click: Repel | Middle click: Spawn")
-            print("  Left+Right: Explode | Q/E: Vortex")
+            print("  Left+Right: Explode | Q/E: Vortex | W/S: Gravity Up/Down")
 
     def _init_camera(self):
         """Initialize webcam."""
@@ -139,6 +158,32 @@ class GestureFlow:
         gesture_names = []
         current_time = time.time()
 
+        # Update multi-hand gesture state
+        self.gesture_state.update(hands)
+
+        # Check for exit gesture (both fists for 3 seconds)
+        if self.gesture_state.should_exit():
+            print("\nExit gesture detected (both fists held)")
+            self.running = False
+            return gesture_names
+
+        # Process two-hands-close gesture (merge particles between hands)
+        if self.gesture_state.two_hands_close and len(hands) >= 2:
+            h1, h2 = hands[0], hands[1]
+            center = self.gesture_state.get_hands_center(hands)
+            if center:
+                # Attract particles between hands
+                affected = self.particle_system.attract_between_points(
+                    h1.palm_center[0], h1.palm_center[1],
+                    h2.palm_center[0], h2.palm_center[1],
+                    self.gesture_state.hands_distance * 0.8,
+                    1.5
+                )
+                if affected > 0 and current_time - self.last_two_hands_sound > 1.0:
+                    self.audio_system.play_resonant_tone()
+                    self.last_two_hands_sound = current_time
+                gesture_names.append("TWO_HANDS_MERGE")
+
         for hand in hands:
             if not hand.is_active:
                 continue
@@ -150,15 +195,18 @@ class GestureFlow:
             # Gesture-specific interactions
             if gesture == Gesture.OPEN_PALM:
                 # Attract particles toward hand
-                affected = self.particle_system.apply_force(x, y, 200, 0.8, repel=False)
+                affected, touching = self.particle_system.apply_force(x, y, 200, 0.8, repel=False)
+                if touching > 0 and self._should_play_sound('touch', 0.1):
+                    self.audio_system.play_touch_pop(touching // 10 + 1)
                 if affected > 0 and self._should_play_sound('attract', 0.5):
-                    # Soft magnetic hum (occasional pops)
                     if affected > 50:
                         self.audio_system.play_pop(0.3)
 
             elif gesture == Gesture.FIST:
                 # Repel particles away from hand
-                affected = self.particle_system.apply_force(x, y, 250, 1.2, repel=True)
+                affected, touching = self.particle_system.apply_force(x, y, 250, 1.2, repel=True)
+                if touching > 0 and self._should_play_sound('touch', 0.1):
+                    self.audio_system.play_touch_pop(touching // 10 + 1)
                 if affected > 0 and self._should_play_sound('repel', 0.3):
                     self.audio_system.play_whoosh(min(1.0, affected / 100))
 
@@ -184,11 +232,30 @@ class GestureFlow:
                 if self._should_play_sound('wave', 0.3):
                     self.audio_system.play_whoosh(0.5)
 
+            elif gesture == Gesture.PALM_UP:
+                # Change gravity to up
+                if current_time - self.last_gravity_change > 0.5:
+                    self.particle_system.set_gravity_direction(-1)
+                    self.audio_system.play_gravity_shift()
+                    self.last_gravity_change = current_time
+
+            elif gesture == Gesture.PALM_DOWN:
+                # Change gravity to down
+                if current_time - self.last_gravity_change > 0.5:
+                    self.particle_system.set_gravity_direction(1)
+                    self.audio_system.play_gravity_shift()
+                    self.last_gravity_change = current_time
+
             # Check for rotation/vortex
             if abs(hand.rotation_angle) > 0.1:
                 affected = self.particle_system.apply_vortex(x, y, 180, hand.rotation_angle * 2)
                 if affected > 0 and self._should_play_sound('vortex', 1.0):
                     self.audio_system.play_swirl()
+
+        # Check for particle merges and play sound
+        merge_count = self.particle_system.get_merge_count()
+        if merge_count > 0 and self._should_play_sound('merge', 0.3):
+            self.audio_system.play_merge()
 
         return gesture_names
 
@@ -230,7 +297,7 @@ class GestureFlow:
             self.show_help = not self.show_help
             self.show_settings = False
 
-        elif key == pygame.K_s:
+        elif key == pygame.K_s and not self.keys_pressed.get(pygame.K_LCTRL, False):
             self.show_settings = not self.show_settings
             self.show_help = False
 
@@ -247,13 +314,17 @@ class GestureFlow:
             else:
                 self.audio_system.stop_ambient()
 
+        elif key == pygame.K_b:
+            # Toggle binaural beats
+            self.settings['binaural'] = self.audio_system.toggle_binaural()
+
         elif key == pygame.K_EQUALS or key == pygame.K_PLUS:
             # Spawn more particles
             import random
             for _ in range(50):
                 self.particle_system.spawn_particle(
-                    random.uniform(100, self.window_width - 100),
-                    random.uniform(100, self.window_height - 100)
+                    random.uniform(100, self.screen.get_width() - 100),
+                    random.uniform(100, self.screen.get_height() - 100)
                 )
 
         elif key == pygame.K_MINUS:
@@ -278,7 +349,8 @@ class GestureFlow:
     def run(self):
         """Main application loop."""
         print("\nStarting GestureFlow...")
-        print("Controls: H=Help, F=Fullscreen, S=Settings, ESC=Exit\n")
+        print("Controls: H=Help, F=Fullscreen, S=Settings, B=Binaural, ESC=Exit")
+        print("Exit: Hold both fists for 3 seconds\n")
 
         # Start ambient audio
         if self.settings['audio']:
@@ -318,7 +390,7 @@ class GestureFlow:
                 self.renderer.render_trails()
 
             # Get particle data and render
-            positions, colors, sizes, alphas = self.particle_system.get_particle_data()
+            positions, colors, sizes, alphas, is_bubble = self.particle_system.get_particle_data()
             self.renderer.render_particles(positions, colors, sizes, alphas)
 
             # Render hand indicators

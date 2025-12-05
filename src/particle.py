@@ -1,5 +1,5 @@
 """
-Particle system with soft-body fluid dynamics.
+Particle system with soft-body fluid dynamics, merging, and bubble formation.
 """
 import numpy as np
 import math
@@ -16,9 +16,19 @@ class ParticleSystem:
 
         # Physics parameters from PRD
         self.gravity = 0.02
+        self.gravity_direction = 1  # 1 = down, -1 = up
         self.buoyancy = 0.015
         self.viscosity = 0.95
         self.collision_softness = 0.3
+
+        # Merging parameters
+        self.merge_distance = 15  # Distance at which particles start merging
+        self.merge_rate = 0.02    # How fast particles merge
+        self.max_particle_size = 40  # Maximum blob size
+        self.bubble_threshold = 25  # Size at which particle becomes a "bubble"
+
+        # Color transition
+        self.color_shift_speed = 0.1  # How fast colors shift
 
         # Particle arrays (vectorized for performance)
         self.count = 0
@@ -26,11 +36,13 @@ class ParticleSystem:
         self.velocities = np.zeros((max_particles, 2), dtype=np.float32)
         self.accelerations = np.zeros((max_particles, 2), dtype=np.float32)
         self.colors = np.zeros((max_particles, 3), dtype=np.float32)  # HSV
+        self.target_colors = np.zeros((max_particles, 3), dtype=np.float32)  # For transitions
         self.sizes = np.zeros(max_particles, dtype=np.float32)
         self.masses = np.zeros(max_particles, dtype=np.float32)
         self.temperatures = np.zeros(max_particles, dtype=np.float32)  # For buoyancy
         self.lifetimes = np.zeros(max_particles, dtype=np.float32)
         self.trail_alpha = np.zeros(max_particles, dtype=np.float32)
+        self.is_bubble = np.zeros(max_particles, dtype=bool)  # Bubble state
 
         # Color palette from PRD (HSV values)
         self.color_palette = [
@@ -40,6 +52,9 @@ class ParticleSystem:
             (265, 0.77, 0.93), # Violet #8338EC
             (158, 0.97, 1.0),  # Mint #06FFA5
         ]
+
+        # Merging events for audio feedback
+        self.recent_merges = 0
 
         # Initialize with starting particles
         self.spawn_initial_particles(500)
@@ -81,6 +96,14 @@ class ParticleSystem:
         else:
             self.colors[i] = color
 
+        # Set target color for smooth transition
+        next_color = random.choice(self.color_palette)
+        self.target_colors[i] = [
+            (next_color[0] + random.uniform(-15, 15)) % 360,
+            next_color[1] * random.uniform(0.8, 1.0),
+            next_color[2] * random.uniform(0.8, 1.0)
+        ]
+
         if size is None:
             self.sizes[i] = random.uniform(4, 12)
         else:
@@ -90,6 +113,7 @@ class ParticleSystem:
         self.temperatures[i] = random.uniform(0.3, 1.0)
         self.lifetimes[i] = 1.0
         self.trail_alpha[i] = 1.0
+        self.is_bubble[i] = False
 
         self.count += 1
         return True
@@ -105,10 +129,14 @@ class ParticleSystem:
                 spawned += 1
         return spawned
 
+    def set_gravity_direction(self, direction):
+        """Set gravity direction: 1 = down, -1 = up, 0 = none."""
+        self.gravity_direction = direction
+
     def apply_force(self, center_x, center_y, radius, strength, repel=False):
-        """Apply attract/repel force from a point."""
+        """Apply attract/repel force from a point. Returns (affected_count, touching_count)."""
         if self.count == 0:
-            return 0
+            return 0, 0
 
         # Vectorized distance calculation
         active_pos = self.positions[:self.count]
@@ -120,8 +148,13 @@ class ParticleSystem:
         mask = distances < radius
         affected_count = np.sum(mask)
 
+        # Count particles very close (touching hand hitbox)
+        touch_radius = 50
+        touching_mask = distances < touch_radius
+        touching_count = np.sum(touching_mask)
+
         if affected_count == 0:
-            return 0
+            return 0, touching_count
 
         # Calculate force magnitude (inverse square falloff)
         safe_distances = np.maximum(distances[mask], 1.0)
@@ -139,7 +172,12 @@ class ParticleSystem:
             self.velocities[:self.count, 0][mask] -= nx * force_mag
             self.velocities[:self.count, 1][mask] -= ny * force_mag
 
-        return affected_count
+        # Heat up particles when touched
+        self.temperatures[:self.count][touching_mask] = np.minimum(
+            self.temperatures[:self.count][touching_mask] + 0.1, 1.0
+        )
+
+        return affected_count, touching_count
 
     def apply_vortex(self, center_x, center_y, radius, strength):
         """Apply swirling vortex force."""
@@ -183,9 +221,202 @@ class ParticleSystem:
         self.velocities[:self.count, 0] += direction_x * strength
         self.velocities[:self.count, 1] += direction_y * strength
 
+    def attract_between_points(self, x1, y1, x2, y2, radius, strength):
+        """Attract particles in a region between two points (two hands merge)."""
+        if self.count == 0:
+            return 0
+
+        # Center point between hands
+        cx = (x1 + x2) / 2
+        cy = (y1 + y2) / 2
+
+        active_pos = self.positions[:self.count]
+        dx = active_pos[:, 0] - cx
+        dy = active_pos[:, 1] - cy
+        distances = np.sqrt(dx * dx + dy * dy)
+
+        # Affect particles near the center
+        mask = distances < radius
+        affected_count = np.sum(mask)
+
+        if affected_count == 0:
+            return 0
+
+        safe_distances = np.maximum(distances[mask], 1.0)
+        force_mag = strength / (safe_distances * 0.05 + 1)
+
+        # Pull toward center
+        nx = dx[mask] / safe_distances
+        ny = dy[mask] / safe_distances
+
+        self.velocities[:self.count, 0][mask] -= nx * force_mag
+        self.velocities[:self.count, 1][mask] -= ny * force_mag
+
+        # Heat up particles being merged
+        self.temperatures[:self.count][mask] = np.minimum(
+            self.temperatures[:self.count][mask] + 0.05, 1.0
+        )
+
+        return affected_count
+
     def explode_from_point(self, center_x, center_y, radius, strength):
         """Explosive scatter from a point."""
-        return self.apply_force(center_x, center_y, radius, strength, repel=True)
+        affected, _ = self.apply_force(center_x, center_y, radius, strength, repel=True)
+        return affected
+
+    def _process_merging(self):
+        """Process particle merging - nearby particles combine into larger blobs."""
+        if self.count < 2:
+            return
+
+        self.recent_merges = 0
+        particles_to_remove = set()
+
+        # Simple O(n^2) check - could use spatial partitioning for performance
+        # Only check a subset each frame for performance
+        check_count = min(self.count, 100)
+        indices = random.sample(range(self.count), check_count)
+
+        for i in indices:
+            if i in particles_to_remove:
+                continue
+
+            for j in range(i + 1, self.count):
+                if j in particles_to_remove:
+                    continue
+
+                # Check distance
+                dx = self.positions[i, 0] - self.positions[j, 0]
+                dy = self.positions[i, 1] - self.positions[j, 1]
+                dist = math.sqrt(dx * dx + dy * dy)
+
+                merge_threshold = (self.sizes[i] + self.sizes[j]) * 0.5
+
+                if dist < merge_threshold:
+                    # Merge j into i
+                    total_mass = self.masses[i] + self.masses[j]
+
+                    # Weighted average position
+                    self.positions[i] = (
+                        self.positions[i] * self.masses[i] +
+                        self.positions[j] * self.masses[j]
+                    ) / total_mass
+
+                    # Weighted average velocity
+                    self.velocities[i] = (
+                        self.velocities[i] * self.masses[i] +
+                        self.velocities[j] * self.masses[j]
+                    ) / total_mass
+
+                    # Blend colors
+                    self.colors[i] = (self.colors[i] + self.colors[j]) / 2
+
+                    # Grow size (with limit)
+                    new_size = min(
+                        self.sizes[i] + self.sizes[j] * 0.3,
+                        self.max_particle_size
+                    )
+                    self.sizes[i] = new_size
+                    self.masses[i] = new_size * 0.1
+
+                    # Check if it's now a bubble
+                    if new_size >= self.bubble_threshold:
+                        self.is_bubble[i] = True
+                        self.temperatures[i] = min(self.temperatures[i] + 0.2, 1.0)
+
+                    particles_to_remove.add(j)
+                    self.recent_merges += 1
+                    break  # Only one merge per particle per frame
+
+        # Remove merged particles
+        if particles_to_remove:
+            self._remove_particles(particles_to_remove)
+
+    def _remove_particles(self, indices_to_remove):
+        """Remove particles by indices."""
+        indices = sorted(indices_to_remove, reverse=True)
+        for idx in indices:
+            if idx < self.count - 1:
+                # Swap with last particle
+                self.positions[idx] = self.positions[self.count - 1]
+                self.velocities[idx] = self.velocities[self.count - 1]
+                self.accelerations[idx] = self.accelerations[self.count - 1]
+                self.colors[idx] = self.colors[self.count - 1]
+                self.target_colors[idx] = self.target_colors[self.count - 1]
+                self.sizes[idx] = self.sizes[self.count - 1]
+                self.masses[idx] = self.masses[self.count - 1]
+                self.temperatures[idx] = self.temperatures[self.count - 1]
+                self.lifetimes[idx] = self.lifetimes[self.count - 1]
+                self.trail_alpha[idx] = self.trail_alpha[self.count - 1]
+                self.is_bubble[idx] = self.is_bubble[self.count - 1]
+            self.count -= 1
+
+    def _update_colors(self):
+        """Smoothly transition colors (lava lamp effect)."""
+        if self.count == 0:
+            return
+
+        active = slice(0, self.count)
+
+        # Interpolate toward target colors
+        color_diff = self.target_colors[active] - self.colors[active]
+
+        # Handle hue wrapping
+        hue_diff = color_diff[:, 0]
+        hue_diff = np.where(hue_diff > 180, hue_diff - 360, hue_diff)
+        hue_diff = np.where(hue_diff < -180, hue_diff + 360, hue_diff)
+        color_diff[:, 0] = hue_diff
+
+        self.colors[active] += color_diff * self.color_shift_speed * 0.01
+
+        # Wrap hue
+        self.colors[active, 0] = self.colors[active, 0] % 360
+
+        # Check if we've reached target, set new target
+        distances = np.abs(color_diff[:, 0])
+        reached_target = distances < 5
+
+        for i in np.where(reached_target)[0]:
+            if i < self.count:
+                next_color = random.choice(self.color_palette)
+                self.target_colors[i] = [
+                    (next_color[0] + random.uniform(-20, 20)) % 360,
+                    next_color[1] * random.uniform(0.8, 1.0),
+                    next_color[2] * random.uniform(0.8, 1.0)
+                ]
+
+    def _process_bubbles(self):
+        """Process bubble behavior - large particles float up more."""
+        if self.count == 0:
+            return
+
+        active = slice(0, self.count)
+        bubble_mask = self.is_bubble[active]
+
+        if not np.any(bubble_mask):
+            return
+
+        # Bubbles have extra buoyancy
+        bubble_indices = np.where(bubble_mask)[0]
+        self.velocities[bubble_indices, 1] -= 0.03 * self.gravity_direction
+
+        # Bubbles slowly shrink (split off small particles)
+        self.sizes[bubble_indices] -= 0.01
+        small_bubbles = self.sizes[bubble_indices] < self.bubble_threshold
+        self.is_bubble[bubble_indices[small_bubbles]] = False
+
+        # Occasionally spawn small particles from bubbles
+        if random.random() < 0.02 and len(bubble_indices) > 0:
+            idx = random.choice(bubble_indices)
+            if self.sizes[idx] > 15:
+                x, y = self.positions[idx]
+                self.spawn_particle(
+                    x + random.uniform(-10, 10),
+                    y + random.uniform(-10, 10),
+                    velocity=[random.uniform(-0.5, 0.5), random.uniform(-0.5, 0.5)],
+                    size=random.uniform(3, 6)
+                )
+                self.sizes[idx] -= 2
 
     def update(self, dt=1.0):
         """Update particle physics."""
@@ -194,11 +425,11 @@ class ParticleSystem:
 
         active = slice(0, self.count)
 
-        # Apply gravity
-        self.accelerations[active, 1] = self.gravity
+        # Apply gravity (with direction)
+        self.accelerations[active, 1] = self.gravity * self.gravity_direction
 
         # Apply buoyancy (warm particles rise)
-        buoyancy_force = -self.buoyancy * self.temperatures[active]
+        buoyancy_force = -self.buoyancy * self.temperatures[active] * self.gravity_direction
         self.accelerations[active, 1] += buoyancy_force
 
         # Update velocities with acceleration
@@ -223,6 +454,16 @@ class ParticleSystem:
         # Update trail alpha based on velocity
         speeds = np.linalg.norm(self.velocities[active], axis=1)
         self.trail_alpha[active] = np.clip(speeds * 0.5, 0.3, 1.0)
+
+        # Process merging (every few frames for performance)
+        if random.random() < 0.3:
+            self._process_merging()
+
+        # Update colors (lava lamp transitions)
+        self._update_colors()
+
+        # Process bubble behavior
+        self._process_bubbles()
 
     def _handle_boundaries(self):
         """Soft boundary collision."""
@@ -253,15 +494,20 @@ class ParticleSystem:
     def get_particle_data(self):
         """Get active particle data for rendering."""
         if self.count == 0:
-            return [], [], [], []
+            return [], [], [], [], []
 
         active = slice(0, self.count)
         return (
             self.positions[active].copy(),
             self.colors[active].copy(),
             self.sizes[active].copy(),
-            self.trail_alpha[active].copy()
+            self.trail_alpha[active].copy(),
+            self.is_bubble[active].copy()
         )
+
+    def get_merge_count(self):
+        """Get recent merge count for audio feedback."""
+        return self.recent_merges
 
     def resize(self, width, height):
         """Handle window resize."""

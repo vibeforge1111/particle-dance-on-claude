@@ -5,6 +5,7 @@ import numpy as np
 from enum import Enum, auto
 from collections import deque
 import math
+import time
 
 # Try to import MediaPipe, fall back to mouse mode if unavailable
 MEDIAPIPE_AVAILABLE = False
@@ -27,6 +28,8 @@ class Gesture(Enum):
     SPREAD = auto()         # Explode particles
     WAVE = auto()           # Create flow current
     ROTATION = auto()       # Vortex swirl
+    PALM_UP = auto()        # Gravity up
+    PALM_DOWN = auto()      # Gravity down
 
 
 class Hand:
@@ -40,10 +43,61 @@ class Hand:
         self.gesture_confidence = 0.0
         self.rotation_angle = 0.0
         self.is_active = False
+        self.palm_facing = 0  # -1 = facing down, 1 = facing up, 0 = neutral
 
         # Smoothing
         self.position_history = deque(maxlen=5)
         self.gesture_history = deque(maxlen=8)
+
+
+class GestureState:
+    """Tracks multi-hand gesture state."""
+
+    def __init__(self):
+        self.two_fists_start_time = None
+        self.two_hands_close = False
+        self.hands_distance = float('inf')
+
+    def update(self, hands):
+        """Update multi-hand gesture state."""
+        active_hands = [h for h in hands if h.is_active]
+
+        if len(active_hands) >= 2:
+            # Calculate distance between hands
+            h1, h2 = active_hands[0], active_hands[1]
+            dx = h1.palm_center[0] - h2.palm_center[0]
+            dy = h1.palm_center[1] - h2.palm_center[1]
+            self.hands_distance = math.sqrt(dx * dx + dy * dy)
+
+            # Two hands close together
+            self.two_hands_close = self.hands_distance < 300
+
+            # Check for two fists (exit gesture)
+            if h1.gesture == Gesture.FIST and h2.gesture == Gesture.FIST:
+                if self.two_fists_start_time is None:
+                    self.two_fists_start_time = time.time()
+            else:
+                self.two_fists_start_time = None
+        else:
+            self.two_hands_close = False
+            self.hands_distance = float('inf')
+            self.two_fists_start_time = None
+
+    def should_exit(self):
+        """Check if both fists held for 3 seconds."""
+        if self.two_fists_start_time is not None:
+            return time.time() - self.two_fists_start_time >= 3.0
+        return False
+
+    def get_hands_center(self, hands):
+        """Get center point between two hands."""
+        active_hands = [h for h in hands if h.is_active]
+        if len(active_hands) >= 2:
+            h1, h2 = active_hands[0], active_hands[1]
+            cx = (h1.palm_center[0] + h2.palm_center[0]) / 2
+            cy = (h1.palm_center[1] + h2.palm_center[1]) / 2
+            return (cx, cy)
+        return None
 
 
 class MouseGestureDetector:
@@ -54,6 +108,8 @@ class MouseGestureDetector:
         self.screen_width = 1920
         self.screen_height = 1080
         self.prev_pos = (0, 0)
+        self.gesture_state = GestureState()
+        self.gravity_direction = 1  # Track gravity for mouse mode
 
     def set_screen_size(self, width, height):
         """Set screen size for coordinate mapping."""
@@ -71,6 +127,7 @@ class MouseGestureDetector:
         - Middle click: spawn (pinch)
         - Left + Right: explode (spread)
         - Scroll or fast movement: wave
+        - W: gravity up, S: gravity down
         """
         import pygame
 
@@ -90,7 +147,14 @@ class MouseGestureDetector:
         # Determine gesture from mouse buttons
         left, middle, right = mouse_buttons
 
-        if left and right:
+        # Check for gravity control (W/S keys)
+        if keys_pressed.get(pygame.K_w, False):
+            self.hand.gesture = Gesture.PALM_UP
+            self.hand.palm_facing = 1
+        elif keys_pressed.get(pygame.K_s, False) and not keys_pressed.get(pygame.K_LCTRL, False):
+            self.hand.gesture = Gesture.PALM_DOWN
+            self.hand.palm_facing = -1
+        elif left and right:
             self.hand.gesture = Gesture.SPREAD
         elif middle:
             self.hand.gesture = Gesture.PINCH
@@ -102,6 +166,7 @@ class MouseGestureDetector:
             self.hand.gesture = Gesture.WAVE
         else:
             self.hand.gesture = Gesture.NONE
+            self.hand.palm_facing = 0
 
         # Check for rotation (using Q/E keys)
         if keys_pressed.get(pygame.K_q, False):
@@ -111,7 +176,7 @@ class MouseGestureDetector:
         else:
             self.hand.rotation_angle = 0
 
-        return [self.hand] if self.hand.gesture != Gesture.NONE or any(mouse_buttons) else []
+        return [self.hand] if self.hand.gesture != Gesture.NONE or any(mouse_buttons) else [self.hand]
 
     def release(self):
         """Clean up (no-op for mouse mode)."""
@@ -127,6 +192,7 @@ class GestureDetector:
     FIST_THRESHOLD = 0.08
     WAVE_VELOCITY_THRESHOLD = 15
     ROTATION_THRESHOLD = 0.3
+    PALM_TILT_THRESHOLD = 0.15  # For palm up/down detection
 
     def __init__(self, max_hands=2, min_detection_confidence=0.7, min_tracking_confidence=0.5):
         if not MEDIAPIPE_AVAILABLE:
@@ -149,6 +215,9 @@ class GestureDetector:
         # Previous frame landmarks for velocity calculation
         self.prev_landmarks = [None, None]
         self.prev_rotation = [0.0, 0.0]
+
+        # Multi-hand gesture state
+        self.gesture_state = GestureState()
 
     def set_screen_size(self, width, height):
         """Set the target screen size for coordinate mapping."""
@@ -204,6 +273,9 @@ class GestureDetector:
                     curr = hand.position_history[-1]
                     hand.palm_velocity = (curr[0] - prev[0], curr[1] - prev[1])
 
+                # Detect palm facing direction
+                hand.palm_facing = self._detect_palm_facing(hand_landmarks.landmark)
+
                 # Detect gesture
                 gesture = self._detect_gesture(hand_landmarks.landmark, idx)
                 hand.gesture_history.append(gesture)
@@ -218,7 +290,29 @@ class GestureDetector:
                 # Calculate rotation angle for vortex
                 hand.rotation_angle = self._calculate_rotation(hand_landmarks.landmark, idx)
 
-        return [h for h in self.tracked_hands if h.is_active]
+        # Update multi-hand gesture state
+        active_hands = [h for h in self.tracked_hands if h.is_active]
+        self.gesture_state.update(active_hands)
+
+        return active_hands
+
+    def _detect_palm_facing(self, landmarks):
+        """Detect if palm is facing up or down."""
+        # Compare wrist and middle finger MCP z-coordinates
+        # If palm is facing up, the palm (landmark 0, 9) will have different z than fingertips
+        wrist = landmarks[0]
+        middle_mcp = landmarks[9]
+        middle_tip = landmarks[12]
+
+        # Use the y-difference between wrist and middle finger tip
+        # relative to the hand orientation
+        palm_normal_y = middle_mcp.z - wrist.z
+
+        if palm_normal_y > self.PALM_TILT_THRESHOLD:
+            return 1  # Palm facing up
+        elif palm_normal_y < -self.PALM_TILT_THRESHOLD:
+            return -1  # Palm facing down
+        return 0  # Neutral
 
     def _detect_gesture(self, landmarks, hand_idx):
         """Detect gesture from hand landmarks."""
@@ -259,6 +353,14 @@ class GestureDetector:
         # Fist detection (no fingers extended)
         if fingers_extended == 0:
             return Gesture.FIST
+
+        # Check palm facing for gravity control (with open palm)
+        if fingers_extended >= 4:
+            palm_facing = self._detect_palm_facing(landmarks)
+            if palm_facing > 0:
+                return Gesture.PALM_UP
+            elif palm_facing < 0:
+                return Gesture.PALM_DOWN
 
         # Spread fingers detection (all extended and wide apart)
         if fingers_extended >= 4:

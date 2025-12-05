@@ -217,15 +217,15 @@ class ParticleRenderer:
         font_large = pygame.font.Font(None, 36)
 
         # Semi-transparent overlay
-        overlay = pygame.Surface((400, 300), pygame.SRCALPHA)
+        overlay = pygame.Surface((400, 350), pygame.SRCALPHA)
         overlay.fill((0, 0, 0, 200))
-        self.screen.blit(overlay, (self.width // 2 - 200, self.height // 2 - 150))
+        self.screen.blit(overlay, (self.width // 2 - 200, self.height // 2 - 175))
 
         # Title
         title = font_large.render("Settings", True, (255, 255, 255))
-        self.screen.blit(title, (self.width // 2 - title.get_width() // 2, self.height // 2 - 130))
+        self.screen.blit(title, (self.width // 2 - title.get_width() // 2, self.height // 2 - 155))
 
-        y_offset = self.height // 2 - 80
+        y_offset = self.height // 2 - 100
 
         # Settings items
         items = [
@@ -234,13 +234,14 @@ class ParticleRenderer:
             ("Glow", "On" if settings.get('glow', True) else "Off", "[G]"),
             ("Trails", "On" if settings.get('trails', True) else "Off", "[T]"),
             ("Audio", "On" if settings.get('audio', True) else "Off", "[A]"),
+            ("Binaural", "On" if settings.get('binaural', False) else "Off", "[B]"),
         ]
 
         for label, value, key in items:
             text = font.render(f"{label}: {value}  {key}", True, (200, 200, 200))
             self.screen.blit(text, (self.width // 2 - 150, y_offset))
-            y_offset += 40
+            y_offset += 35
 
         # Close hint
         hint = font.render("Press [S] to close", True, (100, 100, 100))
-        self.screen.blit(hint, (self.width // 2 - hint.get_width() // 2, self.height // 2 + 120))
+        self.screen.blit(hint, (self.width // 2 - hint.get_width() // 2, self.height // 2 + 140))
