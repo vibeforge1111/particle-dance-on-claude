@@ -88,6 +88,12 @@ class ParticleSystem:
         # Merging events for audio feedback
         self.recent_merges = 0
 
+        # Screensaver/idle mode
+        self.idle_mode = False
+        self.idle_time = 0
+        self.idle_flow_angle = 0
+        self.idle_flow_centers = []  # Random attractor points
+
         # Initialize with starting particles
         self.spawn_initial_particles(500)
 
@@ -578,3 +584,70 @@ class ParticleSystem:
         next_idx = (current_idx + 1) % len(names)
         self.set_palette(names[next_idx])
         return names[next_idx]
+
+    def set_idle_mode(self, enabled):
+        """Enable or disable screensaver idle mode."""
+        if enabled and not self.idle_mode:
+            # Initialize idle mode with random attractor points
+            self.idle_flow_centers = [
+                (random.uniform(self.width * 0.2, self.width * 0.8),
+                 random.uniform(self.height * 0.2, self.height * 0.8))
+                for _ in range(3)
+            ]
+            self.idle_flow_angle = 0
+        self.idle_mode = enabled
+
+    def update_idle_mode(self, dt):
+        """Update particles in idle/screensaver mode with gentle autonomous movement."""
+        if self.count == 0:
+            return
+
+        self.idle_time += dt
+        self.idle_flow_angle += 0.005 * dt
+
+        # Slowly move attractor points
+        for i in range(len(self.idle_flow_centers)):
+            cx, cy = self.idle_flow_centers[i]
+            # Gentle circular drift
+            angle = self.idle_flow_angle + i * (2 * math.pi / 3)
+            cx += math.cos(angle) * 0.5
+            cy += math.sin(angle) * 0.3
+
+            # Keep within bounds
+            cx = max(self.width * 0.1, min(self.width * 0.9, cx))
+            cy = max(self.height * 0.1, min(self.height * 0.9, cy))
+            self.idle_flow_centers[i] = (cx, cy)
+
+        # Apply gentle forces from attractor points
+        active = slice(0, self.count)
+        active_pos = self.positions[active]
+
+        for cx, cy in self.idle_flow_centers:
+            dx = active_pos[:, 0] - cx
+            dy = active_pos[:, 1] - cy
+            distances = np.sqrt(dx * dx + dy * dy)
+
+            # Gentle attraction with orbital component
+            mask = distances > 50  # Don't pull particles too close
+            safe_dist = np.maximum(distances, 1.0)
+
+            # Radial attraction (very gentle)
+            force_mag = 0.02 / (safe_dist * 0.01 + 1)
+            nx = dx / safe_dist
+            ny = dy / safe_dist
+
+            self.velocities[:self.count, 0][mask] -= nx[mask] * force_mag[mask]
+            self.velocities[:self.count, 1][mask] -= ny[mask] * force_mag[mask]
+
+            # Tangential swirl (creates orbital motion)
+            swirl_mag = 0.015 / (safe_dist * 0.01 + 1)
+            self.velocities[:self.count, 0][mask] += (-ny[mask]) * swirl_mag[mask]
+            self.velocities[:self.count, 1][mask] += nx[mask] * swirl_mag[mask]
+
+        # Occasionally shift attractor positions
+        if random.random() < 0.001:
+            idx = random.randint(0, len(self.idle_flow_centers) - 1)
+            self.idle_flow_centers[idx] = (
+                random.uniform(self.width * 0.2, self.width * 0.8),
+                random.uniform(self.height * 0.2, self.height * 0.8)
+            )

@@ -89,6 +89,7 @@ class GestureFlow:
         self.audio_system.set_master_volume(self.settings.get('volume', 0.7))
         self.audio_system.set_screen_size(current_width, current_height)
         self.particle_system.set_palette(self.settings.get('palette', 'default'))
+        self.renderer.set_high_contrast(self.settings.get('high_contrast', False))
 
         # Check for first launch calibration
         if self.settings_manager.is_first_launch() and self.using_camera:
@@ -101,9 +102,22 @@ class GestureFlow:
         self.last_gravity_change = 0
         self.last_two_hands_sound = 0
 
+        # Idle/screensaver mode
+        self.last_interaction_time = time.time()
+        self.idle_timeout = 30.0  # seconds before entering screensaver mode
+        self.in_idle_mode = False
+
         # Performance
         self.frame_times = []
         self.fps = 60
+
+        # Performance auto-scaling
+        self.performance_check_interval = 2.0  # seconds
+        self.last_performance_check = time.time()
+        self.low_fps_threshold = 45
+        self.high_fps_threshold = 55
+        self.auto_scale_enabled = True
+        self.glow_quality = 1.0  # 1.0 = full, 0.5 = reduced
 
         # Key states for mouse mode
         self.keys_pressed = {}
@@ -174,6 +188,15 @@ class GestureFlow:
 
         # Update multi-hand gesture state
         self.gesture_state.update(hands)
+
+        # Check for any active hands to reset idle timer
+        active_hands = [h for h in hands if h.is_active]
+        if active_hands:
+            self.last_interaction_time = current_time
+            if self.in_idle_mode:
+                self.in_idle_mode = False
+                self.particle_system.set_idle_mode(False)
+                print("Exiting screensaver mode")
 
         # Check for exit gesture (both fists for 3 seconds)
         if self.gesture_state.should_exit():
@@ -388,6 +411,12 @@ class GestureFlow:
                 self.settings['gesture_sensitivity'] = new_sens
                 print(f"Gesture sensitivity: {int(new_sens * 100)}%")
 
+        elif key == pygame.K_x:
+            # Toggle high contrast mode (accessibility)
+            self.settings['high_contrast'] = not self.settings.get('high_contrast', False)
+            self.renderer.set_high_contrast(self.settings['high_contrast'])
+            print(f"High contrast mode: {'On' if self.settings['high_contrast'] else 'Off'}")
+
         elif key == pygame.K_EQUALS or key == pygame.K_PLUS:
             # Spawn more particles
             import random
@@ -415,6 +444,33 @@ class GestureFlow:
         if self.frame_times:
             avg_frame_time = sum(self.frame_times) / len(self.frame_times)
             self.fps = 1.0 / avg_frame_time if avg_frame_time > 0 else 60
+
+        # Performance auto-scaling check
+        current_time = time.time()
+        if self.auto_scale_enabled and current_time - self.last_performance_check > self.performance_check_interval:
+            self.last_performance_check = current_time
+            self._check_performance()
+
+    def _check_performance(self):
+        """Auto-scale effects based on FPS."""
+        if self.fps < self.low_fps_threshold:
+            # Performance is suffering - reduce effects
+            if self.settings.get('glow', True) and self.glow_quality > 0.5:
+                self.glow_quality = 0.5
+                print(f"Performance: Reducing glow quality (FPS: {int(self.fps)})")
+            elif self.particle_system.count > 200:
+                # Remove some particles
+                to_remove = min(50, self.particle_system.count - 200)
+                for _ in range(to_remove):
+                    if self.particle_system.count > 200:
+                        self.particle_system._remove_particles({self.particle_system.count - 1})
+                print(f"Performance: Reduced particles to {self.particle_system.count} (FPS: {int(self.fps)})")
+
+        elif self.fps > self.high_fps_threshold:
+            # Performance is good - can restore quality
+            if self.glow_quality < 1.0:
+                self.glow_quality = 1.0
+                print(f"Performance: Restored glow quality (FPS: {int(self.fps)})")
 
     def run(self):
         """Main application loop."""
@@ -475,6 +531,16 @@ class GestureFlow:
                 hands = self.gesture_detector.update_from_mouse(mouse_pos, mouse_buttons, self.keys_pressed)
                 gesture_names = self._process_gestures(hands)
 
+            # Check for idle mode
+            if not self.in_idle_mode and time.time() - self.last_interaction_time > self.idle_timeout:
+                self.in_idle_mode = True
+                self.particle_system.set_idle_mode(True)
+                print("Entering screensaver mode (no interaction for 30s)")
+
+            # Update idle mode if active
+            if self.in_idle_mode:
+                self.particle_system.update_idle_mode(dt * 60)
+
             # Update particle physics
             self.particle_system.update(dt * 60)  # Normalize to 60fps
 
@@ -490,7 +556,14 @@ class GestureFlow:
 
             # Get particle data and render
             positions, colors, sizes, alphas, is_bubble = self.particle_system.get_particle_data()
-            self.renderer.render_particles(positions, colors, sizes, alphas)
+
+            # Get focus points (hand positions) for LOD
+            focus_points = []
+            for hand in hands:
+                if hand.is_active:
+                    focus_points.append(hand.palm_center)
+
+            self.renderer.render_particles(positions, colors, sizes, alphas, self.glow_quality, focus_points)
 
             # Render hand indicators
             for hand in hands:

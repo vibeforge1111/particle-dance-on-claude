@@ -20,6 +20,7 @@ class Settings:
         'webcam_overlay': False,
         'gesture_sensitivity': 0.7,
         'first_launch': True,
+        'high_contrast': False,
     }
 
     def __init__(self, config_path=None):

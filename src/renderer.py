@@ -24,6 +24,10 @@ class ParticleRenderer:
         self.bg_transition = 0.0
         self.bg_direction = 1
 
+        # High contrast mode
+        self.high_contrast = False
+        self.high_contrast_bg = (0, 0, 0)  # Pure black
+
         # Create surfaces for effects
         self.glow_surface = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
         self.trail_surface = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
@@ -67,8 +71,16 @@ class ParticleRenderer:
         """Interpolate between two colors."""
         return tuple(int(c1[i] + (c2[i] - c1[i]) * t) for i in range(3))
 
+    def set_high_contrast(self, enabled):
+        """Enable or disable high contrast mode."""
+        self.high_contrast = enabled
+
     def render_background(self):
         """Render breathing background."""
+        if self.high_contrast:
+            self.screen.fill(self.high_contrast_bg)
+            return
+
         # Slowly transition between background colors
         self.bg_transition += 0.001 * self.bg_direction
         if self.bg_transition >= 1.0:
@@ -87,13 +99,21 @@ class ParticleRenderer:
         self.trail_surface.blit(self.trail_fade, (0, 0), special_flags=pygame.BLEND_RGBA_SUB)
         self.screen.blit(self.trail_surface, (0, 0), special_flags=pygame.BLEND_ADD)
 
-    def render_particles(self, positions, colors, sizes, alphas):
-        """Render particles with glow effect."""
+    def render_particles(self, positions, colors, sizes, alphas, glow_quality=1.0, focus_points=None):
+        """Render particles with glow effect.
+
+        Args:
+            focus_points: List of (x, y) tuples for LOD calculation (hand positions).
+                         Particles far from focus points get reduced detail.
+        """
         if len(positions) == 0:
             return
 
         # Clear glow surface
         self.glow_surface.fill((0, 0, 0, 0))
+
+        # LOD distance threshold
+        lod_distance = 300  # Particles within this distance get full detail
 
         for i in range(len(positions)):
             x, y = int(positions[i][0]), int(positions[i][1])
@@ -101,30 +121,54 @@ class ParticleRenderer:
             size = max(4, int(sizes[i]))
             alpha = alphas[i]
 
+            # Calculate LOD factor based on distance to nearest focus point
+            lod_factor = 1.0
+            if focus_points and len(focus_points) > 0:
+                min_dist = float('inf')
+                for fx, fy in focus_points:
+                    dist = ((x - fx) ** 2 + (y - fy) ** 2) ** 0.5
+                    min_dist = min(min_dist, dist)
+                # Reduce detail for distant particles
+                if min_dist > lod_distance:
+                    lod_factor = max(0.3, 1.0 - (min_dist - lod_distance) / 500)
+
             # Convert HSV to RGB
-            rgb = self._hsv_to_rgb(h, s, v)
+            if self.high_contrast:
+                # High contrast: boost saturation and value
+                rgb = self._hsv_to_rgb(h, min(1.0, s * 1.2), min(1.0, v * 1.3))
+            else:
+                rgb = self._hsv_to_rgb(h, s, v)
 
             # Draw to trail surface (small dot)
             trail_alpha = int(alpha * 100)
             trail_color = (*rgb, trail_alpha)
             pygame.draw.circle(self.trail_surface, trail_color, (x, y), max(2, size // 3))
 
-            # Get closest pre-rendered glow texture
-            texture_size = min(24, max(4, (size // 2) * 2))
-            if texture_size in self.glow_textures:
-                glow = self.glow_textures[texture_size].copy()
+            # Get closest pre-rendered glow texture (skip if glow quality is low or LOD is low)
+            effective_quality = glow_quality * lod_factor
+            if effective_quality > 0.3:
+                texture_size = min(24, max(4, (size // 2) * 2))
+                # Reduce texture size for low quality or distant particles
+                if effective_quality < 0.7:
+                    texture_size = max(4, texture_size // 2 * 2)
 
-                # Tint the glow with particle color
-                glow_colored = pygame.Surface(glow.get_size(), pygame.SRCALPHA)
-                glow_colored.fill((*rgb, 0))
-                glow_colored.blit(glow, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
+                if texture_size in self.glow_textures:
+                    glow = self.glow_textures[texture_size].copy()
 
-                # Scale alpha
-                glow_colored.set_alpha(int(alpha * 200))
+                    # Tint the glow with particle color
+                    glow_colored = pygame.Surface(glow.get_size(), pygame.SRCALPHA)
+                    glow_colored.fill((*rgb, 0))
+                    glow_colored.blit(glow, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
 
-                # Blit to glow surface
-                glow_rect = glow_colored.get_rect(center=(x, y))
-                self.glow_surface.blit(glow_colored, glow_rect, special_flags=pygame.BLEND_ADD)
+                    # Scale alpha (boost in high contrast mode)
+                    glow_alpha = int(alpha * 200)
+                    if self.high_contrast:
+                        glow_alpha = int(alpha * 255)
+                    glow_colored.set_alpha(glow_alpha)
+
+                    # Blit to glow surface
+                    glow_rect = glow_colored.get_rect(center=(x, y))
+                    self.glow_surface.blit(glow_colored, glow_rect, special_flags=pygame.BLEND_ADD)
 
             # Draw core particle
             pygame.draw.circle(self.screen, rgb, (x, y), size)
@@ -218,9 +262,9 @@ class ParticleRenderer:
         font_large = pygame.font.Font(None, 36)
 
         # Semi-transparent overlay
-        overlay = pygame.Surface((450, 500), pygame.SRCALPHA)
+        overlay = pygame.Surface((450, 530), pygame.SRCALPHA)
         overlay.fill((0, 0, 0, 200))
-        self.screen.blit(overlay, (self.width // 2 - 225, self.height // 2 - 250))
+        self.screen.blit(overlay, (self.width // 2 - 225, self.height // 2 - 265))
 
         # Title
         title = font_large.render("Settings", True, (255, 255, 255))
@@ -240,6 +284,7 @@ class ParticleRenderer:
             ("Spatial Audio", "On" if settings.get('spatial_audio', True) else "Off", "[P]"),
             ("Webcam Overlay", "On" if settings.get('webcam_overlay', False) else "Off", "[O]"),
             ("Gesture Sens.", f"{int(settings.get('gesture_sensitivity', 0.7) * 100)}%", "[/]"),
+            ("High Contrast", "On" if settings.get('high_contrast', False) else "Off", "[X]"),
         ]
 
         for label, value, key in items:
