@@ -250,6 +250,15 @@ kbd {
     justify-content: center;
     z-index: 200;
     backdrop-filter: blur(5px);
+    cursor: auto;
+}
+
+#help-modal * {
+    cursor: auto;
+}
+
+#help-modal button {
+    cursor: pointer;
 }
 
 .modal-content {
@@ -415,6 +424,15 @@ kbd {
     justify-content: center;
     z-index: 300;
     backdrop-filter: blur(10px);
+    cursor: auto;
+}
+
+#camera-prompt * {
+    cursor: auto;
+}
+
+#camera-prompt button {
+    cursor: pointer;
 }
 
 .prompt-content {
