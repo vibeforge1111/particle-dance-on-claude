@@ -460,10 +460,7 @@ kbd {
     font-size: 28px;
     font-weight: 600;
     margin-bottom: 16px;
-    background: linear-gradient(90deg, var(--accent-cyan), var(--accent-magenta));
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
+    color: #FFFFFF;
 }
 
 .prompt-content p {
