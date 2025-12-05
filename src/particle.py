@@ -44,14 +44,46 @@ class ParticleSystem:
         self.trail_alpha = np.zeros(max_particles, dtype=np.float32)
         self.is_bubble = np.zeros(max_particles, dtype=bool)  # Bubble state
 
-        # Color palette from PRD (HSV values)
-        self.color_palette = [
-            (330, 1.0, 1.0),   # Magenta #FF006E
-            (190, 1.0, 0.83),  # Cyan #00D4FF
-            (43, 1.0, 1.0),    # Amber #FFB800
-            (265, 0.77, 0.93), # Violet #8338EC
-            (158, 0.97, 1.0),  # Mint #06FFA5
-        ]
+        # Color palettes from PRD (HSV values)
+        self.color_palettes = {
+            'default': [
+                (330, 1.0, 1.0),   # Magenta #FF006E
+                (190, 1.0, 0.83),  # Cyan #00D4FF
+                (43, 1.0, 1.0),    # Amber #FFB800
+                (265, 0.77, 0.93), # Violet #8338EC
+                (158, 0.97, 1.0),  # Mint #06FFA5
+            ],
+            'sunset': [
+                (15, 1.0, 1.0),    # Orange-red
+                (35, 1.0, 1.0),    # Orange
+                (50, 0.9, 1.0),    # Golden
+                (340, 0.8, 0.9),   # Pink
+                (280, 0.6, 0.8),   # Lavender
+            ],
+            'ocean': [
+                (200, 1.0, 0.9),   # Deep blue
+                (180, 0.8, 1.0),   # Cyan
+                (160, 0.9, 0.8),   # Teal
+                (220, 0.7, 0.6),   # Navy
+                (190, 0.5, 1.0),   # Light blue
+            ],
+            'aurora': [
+                (120, 1.0, 0.9),   # Green
+                (160, 0.9, 1.0),   # Cyan-green
+                (280, 0.8, 0.9),   # Purple
+                (200, 0.7, 1.0),   # Blue
+                (80, 0.6, 1.0),    # Yellow-green
+            ],
+            'monochrome': [
+                (0, 0.0, 1.0),     # White
+                (0, 0.0, 0.8),     # Light gray
+                (0, 0.0, 0.6),     # Medium gray
+                (0, 0.0, 0.9),     # Near white
+                (0, 0.0, 0.7),     # Gray
+            ],
+        }
+        self.current_palette = 'default'
+        self.color_palette = self.color_palettes['default']
 
         # Merging events for audio feedback
         self.recent_merges = 0
@@ -518,3 +550,31 @@ class ParticleSystem:
 
         self.width = width
         self.height = height
+
+    def set_palette(self, palette_name):
+        """Set the color palette by name."""
+        if palette_name in self.color_palettes:
+            self.current_palette = palette_name
+            self.color_palette = self.color_palettes[palette_name]
+            # Update target colors for existing particles
+            for i in range(self.count):
+                next_color = random.choice(self.color_palette)
+                self.target_colors[i] = [
+                    (next_color[0] + random.uniform(-15, 15)) % 360,
+                    next_color[1] * random.uniform(0.8, 1.0),
+                    next_color[2] * random.uniform(0.8, 1.0)
+                ]
+            return True
+        return False
+
+    def get_palette_names(self):
+        """Get list of available palette names."""
+        return list(self.color_palettes.keys())
+
+    def next_palette(self):
+        """Cycle to the next color palette."""
+        names = self.get_palette_names()
+        current_idx = names.index(self.current_palette)
+        next_idx = (current_idx + 1) % len(names)
+        self.set_palette(names[next_idx])
+        return names[next_idx]

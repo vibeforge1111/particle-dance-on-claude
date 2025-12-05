@@ -186,15 +186,15 @@ class MouseGestureDetector:
 class GestureDetector:
     """Detects hand gestures using MediaPipe."""
 
-    # Thresholds
-    PINCH_THRESHOLD = 0.06
-    SPREAD_THRESHOLD = 0.25
-    FIST_THRESHOLD = 0.08
-    WAVE_VELOCITY_THRESHOLD = 15
-    ROTATION_THRESHOLD = 0.3
-    PALM_TILT_THRESHOLD = 0.15  # For palm up/down detection
+    # Default thresholds
+    DEFAULT_PINCH_THRESHOLD = 0.06
+    DEFAULT_SPREAD_THRESHOLD = 0.25
+    DEFAULT_FIST_THRESHOLD = 0.08
+    DEFAULT_WAVE_VELOCITY_THRESHOLD = 15
+    DEFAULT_ROTATION_THRESHOLD = 0.3
+    DEFAULT_PALM_TILT_THRESHOLD = 0.15  # For palm up/down detection
 
-    def __init__(self, max_hands=2, min_detection_confidence=0.7, min_tracking_confidence=0.5):
+    def __init__(self, max_hands=2, min_detection_confidence=0.7, min_tracking_confidence=0.5, sensitivity=0.7):
         if not MEDIAPIPE_AVAILABLE:
             raise ImportError("MediaPipe not available")
 
@@ -218,6 +218,29 @@ class GestureDetector:
 
         # Multi-hand gesture state
         self.gesture_state = GestureState()
+
+        # Sensitivity (0.0 to 1.0) - affects threshold values
+        self.sensitivity = sensitivity
+        self._update_thresholds()
+
+    def _update_thresholds(self):
+        """Update gesture thresholds based on sensitivity."""
+        # Higher sensitivity = lower thresholds (easier to trigger)
+        # sensitivity 0.5 = default values, 1.0 = very sensitive, 0.0 = very strict
+        scale = 1.5 - self.sensitivity  # 0.5 at sens=1.0, 1.5 at sens=0.0
+
+        self.PINCH_THRESHOLD = self.DEFAULT_PINCH_THRESHOLD * scale
+        self.SPREAD_THRESHOLD = self.DEFAULT_SPREAD_THRESHOLD * scale
+        self.FIST_THRESHOLD = self.DEFAULT_FIST_THRESHOLD * scale
+        self.WAVE_VELOCITY_THRESHOLD = self.DEFAULT_WAVE_VELOCITY_THRESHOLD * scale
+        self.ROTATION_THRESHOLD = self.DEFAULT_ROTATION_THRESHOLD * scale
+        self.PALM_TILT_THRESHOLD = self.DEFAULT_PALM_TILT_THRESHOLD * scale
+
+    def set_sensitivity(self, sensitivity):
+        """Set gesture detection sensitivity (0.0 to 1.0)."""
+        self.sensitivity = max(0.0, min(1.0, sensitivity))
+        self._update_thresholds()
+        return self.sensitivity
 
     def set_screen_size(self, width, height):
         """Set the target screen size for coordinate mapping."""

@@ -197,6 +197,7 @@ class ParticleRenderer:
             ("H", "Toggle help"),
             ("F", "Toggle fullscreen"),
             ("S", "Settings"),
+            ("C", "Cycle colors"),
             ("ESC", "Exit"),
         ]
 
@@ -217,15 +218,15 @@ class ParticleRenderer:
         font_large = pygame.font.Font(None, 36)
 
         # Semi-transparent overlay
-        overlay = pygame.Surface((400, 350), pygame.SRCALPHA)
+        overlay = pygame.Surface((450, 500), pygame.SRCALPHA)
         overlay.fill((0, 0, 0, 200))
-        self.screen.blit(overlay, (self.width // 2 - 200, self.height // 2 - 175))
+        self.screen.blit(overlay, (self.width // 2 - 225, self.height // 2 - 250))
 
         # Title
         title = font_large.render("Settings", True, (255, 255, 255))
-        self.screen.blit(title, (self.width // 2 - title.get_width() // 2, self.height // 2 - 155))
+        self.screen.blit(title, (self.width // 2 - title.get_width() // 2, self.height // 2 - 230))
 
-        y_offset = self.height // 2 - 100
+        y_offset = self.height // 2 - 185
 
         # Settings items
         items = [
@@ -235,13 +236,89 @@ class ParticleRenderer:
             ("Trails", "On" if settings.get('trails', True) else "Off", "[T]"),
             ("Audio", "On" if settings.get('audio', True) else "Off", "[A]"),
             ("Binaural", "On" if settings.get('binaural', False) else "Off", "[B]"),
+            ("Palette", settings.get('palette', 'default').title(), "[C]"),
+            ("Spatial Audio", "On" if settings.get('spatial_audio', True) else "Off", "[P]"),
+            ("Webcam Overlay", "On" if settings.get('webcam_overlay', False) else "Off", "[O]"),
+            ("Gesture Sens.", f"{int(settings.get('gesture_sensitivity', 0.7) * 100)}%", "[/]"),
         ]
 
         for label, value, key in items:
             text = font.render(f"{label}: {value}  {key}", True, (200, 200, 200))
-            self.screen.blit(text, (self.width // 2 - 150, y_offset))
+            self.screen.blit(text, (self.width // 2 - 180, y_offset))
             y_offset += 35
 
         # Close hint
         hint = font.render("Press [S] to close", True, (100, 100, 100))
-        self.screen.blit(hint, (self.width // 2 - hint.get_width() // 2, self.height // 2 + 140))
+        self.screen.blit(hint, (self.width // 2 - hint.get_width() // 2, self.height // 2 + 210))
+
+    def render_webcam_overlay(self, frame):
+        """Render semi-transparent webcam feed overlay."""
+        if frame is None:
+            return
+
+        try:
+            # Convert OpenCV frame (BGR) to Pygame surface
+            import cv2
+
+            # Flip horizontally for mirror effect
+            frame = cv2.flip(frame, 1)
+
+            # Convert BGR to RGB
+            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+            # Scale to screen size
+            frame = cv2.resize(frame, (self.width, self.height))
+
+            # Create pygame surface
+            surface = pygame.surfarray.make_surface(frame.swapaxes(0, 1))
+
+            # Set transparency
+            surface.set_alpha(40)  # Very faint overlay
+
+            # Blit to screen
+            self.screen.blit(surface, (0, 0))
+        except Exception as e:
+            pass  # Silently fail if cv2 not available
+
+    def render_calibration(self, progress, hands_detected):
+        """Render calibration screen for first launch."""
+        font = pygame.font.Font(None, 36)
+        font_large = pygame.font.Font(None, 48)
+
+        # Semi-transparent overlay
+        overlay = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 180))
+        self.screen.blit(overlay, (0, 0))
+
+        # Title
+        title = font_large.render("Hand Calibration", True, (255, 255, 255))
+        self.screen.blit(title, (self.width // 2 - title.get_width() // 2, self.height // 2 - 100))
+
+        # Instructions
+        instruction = font.render("Hold your hands in front of the camera", True, (200, 200, 200))
+        self.screen.blit(instruction, (self.width // 2 - instruction.get_width() // 2, self.height // 2 - 40))
+
+        # Progress bar
+        bar_width = 400
+        bar_height = 20
+        bar_x = self.width // 2 - bar_width // 2
+        bar_y = self.height // 2 + 20
+
+        # Background
+        pygame.draw.rect(self.screen, (50, 50, 50), (bar_x, bar_y, bar_width, bar_height), border_radius=10)
+
+        # Progress fill
+        fill_width = int(bar_width * progress)
+        if fill_width > 0:
+            color = (100, 255, 100) if hands_detected else (255, 200, 100)
+            pygame.draw.rect(self.screen, color, (bar_x, bar_y, fill_width, bar_height), border_radius=10)
+
+        # Status
+        status = "Hands detected!" if hands_detected else "Looking for hands..."
+        status_color = (100, 255, 100) if hands_detected else (255, 200, 100)
+        status_text = font.render(status, True, status_color)
+        self.screen.blit(status_text, (self.width // 2 - status_text.get_width() // 2, self.height // 2 + 60))
+
+        # Skip hint
+        skip_text = font.render("Press SPACE to skip", True, (100, 100, 100))
+        self.screen.blit(skip_text, (self.width // 2 - skip_text.get_width() // 2, self.height // 2 + 120))

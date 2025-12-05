@@ -20,6 +20,10 @@ class AudioSystem:
         self.ambient_volume = 0.3
         self.interaction_volume = 0.5
 
+        # Screen dimensions for spatial audio
+        self.screen_width = 1920
+        self.screen_height = 1080
+
         # Sound pools for variation
         self.pop_sounds = []
         self.whoosh_sounds = []
@@ -422,6 +426,71 @@ class AudioSystem:
             self.ambient_drone.set_volume(self.ambient_volume * self.master_volume)
         if self.binaural_enabled and self.binaural_channel:
             self.binaural_drone.set_volume(self.ambient_volume * self.master_volume * 0.5)
+
+    def set_screen_size(self, width, height):
+        """Set screen size for spatial audio calculations."""
+        self.screen_width = width
+        self.screen_height = height
+
+    def _get_spatial_pan(self, x):
+        """Calculate stereo pan based on x position (-1 = left, 1 = right)."""
+        if self.screen_width > 0:
+            return (x / self.screen_width) * 2 - 1
+        return 0
+
+    def play_pop_spatial(self, intensity=1.0, x=None):
+        """Play a random pop sound with spatial panning."""
+        sound = random.choice(self.pop_sounds)
+        volume = self.interaction_volume * self.master_volume * min(intensity, 1.0)
+
+        if x is not None:
+            pan = self._get_spatial_pan(x)
+            # Create panned stereo by adjusting left/right volumes
+            left_vol = volume * min(1.0, 1.0 - pan * 0.5)
+            right_vol = volume * min(1.0, 1.0 + pan * 0.5)
+            # Find free channel and set panning
+            channel = pygame.mixer.find_channel()
+            if channel:
+                channel.set_volume(left_vol, right_vol)
+                channel.play(sound)
+        else:
+            sound.set_volume(volume)
+            sound.play()
+
+    def play_whoosh_spatial(self, intensity=1.0, x=None):
+        """Play a whoosh sound with spatial panning."""
+        sound = random.choice(self.whoosh_sounds)
+        volume = self.interaction_volume * self.master_volume * min(intensity, 1.0)
+
+        if x is not None:
+            pan = self._get_spatial_pan(x)
+            left_vol = volume * min(1.0, 1.0 - pan * 0.5)
+            right_vol = volume * min(1.0, 1.0 + pan * 0.5)
+            channel = pygame.mixer.find_channel()
+            if channel:
+                channel.set_volume(left_vol, right_vol)
+                channel.play(sound)
+        else:
+            sound.set_volume(volume)
+            sound.play()
+
+    def play_touch_pop_spatial(self, count=1, x=None):
+        """Play light touch pops with spatial panning."""
+        for _ in range(min(count, 3)):
+            sound = random.choice(self.touch_pops)
+            volume = self.interaction_volume * self.master_volume * 0.3
+
+            if x is not None:
+                pan = self._get_spatial_pan(x)
+                left_vol = volume * min(1.0, 1.0 - pan * 0.5)
+                right_vol = volume * min(1.0, 1.0 + pan * 0.5)
+                channel = pygame.mixer.find_channel()
+                if channel:
+                    channel.set_volume(left_vol, right_vol)
+                    channel.play(sound)
+            else:
+                sound.set_volume(volume)
+                sound.play()
 
     def cleanup(self):
         """Clean up audio resources."""

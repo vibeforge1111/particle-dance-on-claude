@@ -10,6 +10,7 @@ from particle import ParticleSystem
 from gesture import GestureDetector, MouseGestureDetector, Gesture, GestureState, MEDIAPIPE_AVAILABLE, create_gesture_detector
 from audio import AudioSystem
 from renderer import ParticleRenderer
+from settings import Settings
 
 # Only import cv2 if mediapipe is available
 if MEDIAPIPE_AVAILABLE:
@@ -78,14 +79,20 @@ class GestureFlow:
         # UI State
         self.show_help = False
         self.show_settings = False
-        self.settings = {
-            'volume': 0.7,
-            'particle_count': 500,
-            'glow': True,
-            'trails': True,
-            'audio': True,
-            'binaural': False,
-        }
+        self.show_calibration = False
+
+        # Load persistent settings
+        self.settings_manager = Settings()
+        self.settings = self.settings_manager.to_dict()
+
+        # Apply loaded settings
+        self.audio_system.set_master_volume(self.settings.get('volume', 0.7))
+        self.audio_system.set_screen_size(current_width, current_height)
+        self.particle_system.set_palette(self.settings.get('palette', 'default'))
+
+        # Check for first launch calibration
+        if self.settings_manager.is_first_launch() and self.using_camera:
+            self.show_calibration = True
 
         # Interaction state
         self.last_spawn_time = 0
@@ -100,6 +107,13 @@ class GestureFlow:
 
         # Key states for mouse mode
         self.keys_pressed = {}
+
+        # Calibration state
+        self.calibration_start_time = None
+        self.calibration_duration = 5.0  # seconds
+
+        # Webcam overlay frame
+        self.webcam_frame = None
 
         # Print mode info
         if self.using_camera:
@@ -193,22 +207,37 @@ class GestureFlow:
             gesture_names.append(gesture.name)
 
             # Gesture-specific interactions
+            # Use spatial audio if enabled
+            use_spatial = self.settings.get('spatial_audio', True)
+
             if gesture == Gesture.OPEN_PALM:
                 # Attract particles toward hand
                 affected, touching = self.particle_system.apply_force(x, y, 200, 0.8, repel=False)
                 if touching > 0 and self._should_play_sound('touch', 0.1):
-                    self.audio_system.play_touch_pop(touching // 10 + 1)
+                    if use_spatial:
+                        self.audio_system.play_touch_pop_spatial(touching // 10 + 1, x)
+                    else:
+                        self.audio_system.play_touch_pop(touching // 10 + 1)
                 if affected > 0 and self._should_play_sound('attract', 0.5):
                     if affected > 50:
-                        self.audio_system.play_pop(0.3)
+                        if use_spatial:
+                            self.audio_system.play_pop_spatial(0.3, x)
+                        else:
+                            self.audio_system.play_pop(0.3)
 
             elif gesture == Gesture.FIST:
                 # Repel particles away from hand
                 affected, touching = self.particle_system.apply_force(x, y, 250, 1.2, repel=True)
                 if touching > 0 and self._should_play_sound('touch', 0.1):
-                    self.audio_system.play_touch_pop(touching // 10 + 1)
+                    if use_spatial:
+                        self.audio_system.play_touch_pop_spatial(touching // 10 + 1, x)
+                    else:
+                        self.audio_system.play_touch_pop(touching // 10 + 1)
                 if affected > 0 and self._should_play_sound('repel', 0.3):
-                    self.audio_system.play_whoosh(min(1.0, affected / 100))
+                    if use_spatial:
+                        self.audio_system.play_whoosh_spatial(min(1.0, affected / 100), x)
+                    else:
+                        self.audio_system.play_whoosh(min(1.0, affected / 100))
 
             elif gesture == Gesture.PINCH:
                 # Spawn new particle cluster
@@ -290,6 +319,12 @@ class GestureFlow:
         if key == pygame.K_ESCAPE:
             self.running = False
 
+        elif key == pygame.K_SPACE:
+            # Skip calibration
+            if self.show_calibration:
+                self.show_calibration = False
+                print("Calibration skipped")
+
         elif key == pygame.K_f:
             self._toggle_fullscreen()
 
@@ -317,6 +352,41 @@ class GestureFlow:
         elif key == pygame.K_b:
             # Toggle binaural beats
             self.settings['binaural'] = self.audio_system.toggle_binaural()
+
+        elif key == pygame.K_c:
+            # Cycle color palettes
+            new_palette = self.particle_system.next_palette()
+            self.settings['palette'] = new_palette
+            print(f"Color palette: {new_palette}")
+
+        elif key == pygame.K_p:
+            # Toggle spatial audio
+            self.settings['spatial_audio'] = not self.settings.get('spatial_audio', True)
+            print(f"Spatial audio: {'On' if self.settings['spatial_audio'] else 'Off'}")
+
+        elif key == pygame.K_o:
+            # Toggle webcam overlay (camera mode only)
+            if self.using_camera:
+                self.settings['webcam_overlay'] = not self.settings.get('webcam_overlay', False)
+                print(f"Webcam overlay: {'On' if self.settings['webcam_overlay'] else 'Off'}")
+
+        elif key == pygame.K_LEFTBRACKET:
+            # Decrease gesture sensitivity
+            if self.using_camera and hasattr(self.gesture_detector, 'set_sensitivity'):
+                current = self.settings.get('gesture_sensitivity', 0.7)
+                new_sens = max(0.1, current - 0.1)
+                self.gesture_detector.set_sensitivity(new_sens)
+                self.settings['gesture_sensitivity'] = new_sens
+                print(f"Gesture sensitivity: {int(new_sens * 100)}%")
+
+        elif key == pygame.K_RIGHTBRACKET:
+            # Increase gesture sensitivity
+            if self.using_camera and hasattr(self.gesture_detector, 'set_sensitivity'):
+                current = self.settings.get('gesture_sensitivity', 0.7)
+                new_sens = min(1.0, current + 0.1)
+                self.gesture_detector.set_sensitivity(new_sens)
+                self.settings['gesture_sensitivity'] = new_sens
+                print(f"Gesture sensitivity: {int(new_sens * 100)}%")
 
         elif key == pygame.K_EQUALS or key == pygame.K_PLUS:
             # Spawn more particles
@@ -349,7 +419,7 @@ class GestureFlow:
     def run(self):
         """Main application loop."""
         print("\nStarting GestureFlow...")
-        print("Controls: H=Help, F=Fullscreen, S=Settings, B=Binaural, ESC=Exit")
+        print("Controls: H=Help, F=Fullscreen, S=Settings, B=Binaural, C=Palette, ESC=Exit")
         print("Exit: Hold both fists for 3 seconds\n")
 
         # Start ambient audio
@@ -371,8 +441,33 @@ class GestureFlow:
                 # Camera mode - process video frame
                 ret, frame = self.camera.read()
                 if ret:
+                    # Store frame for webcam overlay
+                    if self.settings.get('webcam_overlay', False):
+                        self.webcam_frame = frame.copy()
+                    else:
+                        self.webcam_frame = None
+
                     hands = self.gesture_detector.process_frame(frame)
-                    gesture_names = self._process_gestures(hands)
+
+                    # Handle calibration mode
+                    if self.show_calibration:
+                        if self.calibration_start_time is None:
+                            self.calibration_start_time = time.time()
+
+                        elapsed = time.time() - self.calibration_start_time
+                        progress = min(1.0, elapsed / self.calibration_duration)
+                        hands_detected = len([h for h in hands if h.is_active]) > 0
+
+                        # Only progress if hands detected
+                        if not hands_detected:
+                            # Slow down progress when no hands
+                            self.calibration_start_time = time.time() - (elapsed * 0.9)
+
+                        if progress >= 1.0:
+                            self.show_calibration = False
+                            print("Calibration complete!")
+                    else:
+                        gesture_names = self._process_gestures(hands)
             else:
                 # Mouse mode
                 mouse_pos = pygame.mouse.get_pos()
@@ -386,6 +481,10 @@ class GestureFlow:
             # Render
             self.renderer.render_background()
 
+            # Render webcam overlay if enabled
+            if self.settings.get('webcam_overlay', False) and self.webcam_frame is not None:
+                self.renderer.render_webcam_overlay(self.webcam_frame)
+
             if self.settings['trails']:
                 self.renderer.render_trails()
 
@@ -398,7 +497,12 @@ class GestureFlow:
                 self.renderer.render_hand_indicator(hand, hand.gesture.name if hand.is_active else "")
 
             # Render UI
-            if self.show_settings:
+            if self.show_calibration:
+                elapsed = time.time() - (self.calibration_start_time or time.time())
+                progress = min(1.0, elapsed / self.calibration_duration)
+                hands_detected = len([h for h in hands if h.is_active]) > 0
+                self.renderer.render_calibration(progress, hands_detected)
+            elif self.show_settings:
                 self.renderer.render_settings(self.settings)
             else:
                 self.renderer.render_ui_overlay(
@@ -417,6 +521,12 @@ class GestureFlow:
     def _cleanup(self):
         """Clean up resources."""
         print("\nShutting down...")
+
+        # Save settings before exit
+        for key, value in self.settings.items():
+            self.settings_manager.set(key, value)
+        self.settings_manager.mark_launched()  # Mark that we've launched at least once
+        self.settings_manager.save()
 
         if self.camera is not None:
             self.camera.release()
