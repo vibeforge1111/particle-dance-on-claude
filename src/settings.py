@@ -53,8 +53,10 @@ class Settings:
     def save(self):
         """Save settings to file."""
         try:
-            with open(self.config_path, 'w') as f:
+            tmp_path = self.config_path.with_suffix('.tmp')
+            with open(tmp_path, 'w') as f:
                 json.dump(self.settings, f, indent=2)
+            tmp_path.replace(self.config_path)
             print(f"Settings saved to {self.config_path}")
         except Exception as e:
             print(f"Could not save settings: {e}")
